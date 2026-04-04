@@ -2,6 +2,7 @@ import path from "path";
 import { NextConfig } from "next";
 
 const config: NextConfig = {
+  output: "standalone",
   reactStrictMode: true,
   webpack: (config) => {
     // When using `pnpm link` for local SDK development, webpack may resolve

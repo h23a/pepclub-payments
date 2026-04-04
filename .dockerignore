@@ -1,0 +1,17 @@
+.env
+.env.local
+.env.*.local
+.git
+.github
+.next
+.cursor
+.devcontainer
+.vscode
+node_modules
+npm-debug.log*
+pnpm-debug.log*
+README.md
+coverage
+dist
+tmp
+*.tsbuildinfo
