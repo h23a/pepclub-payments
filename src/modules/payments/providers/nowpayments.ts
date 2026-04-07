@@ -98,8 +98,9 @@ const mapNowPaymentsResult = (
     redirectUrl: fallbackHostedUrl ?? null,
     providerPaymentId: payload.payment_id ? String(payload.payment_id) : null,
     providerInvoiceId: payload.invoice_id ? String(payload.invoice_id) : null,
-    providerReferenceId:
-      payload.payment_id ? String(payload.payment_id) : payload.purchase_id ?? payload.order_id ?? null,
+    providerReferenceId: payload.payment_id
+      ? String(payload.payment_id)
+      : payload.purchase_id ?? payload.order_id ?? null,
     message: providerStatus,
     rawResponse: payload,
     finalizationState: getFinalizationState(saleorStatus),
@@ -134,11 +135,13 @@ export class NowPaymentsProvider implements PaymentProvider {
     }
 
     const webhookUrl = `${input.baseUrl}/api/webhooks/providers/nowpayments`;
+    const providerAmount = input.providerAmount ?? input.amount;
+    const providerCurrency = (input.providerCurrency ?? input.currency).toLowerCase();
     const invoice = await nowPaymentsFetch<NowPaymentsInvoiceResponse>("/invoice", {
       method: "POST",
       body: {
-        price_amount: input.amount,
-        price_currency: input.currency.toLowerCase(),
+        price_amount: providerAmount,
+        price_currency: providerCurrency,
         pay_currency: input.gatewayData.quoteCurrency?.toLowerCase(),
         ipn_callback_url: webhookUrl,
         order_id: input.transactionId,
@@ -156,6 +159,9 @@ export class NowPaymentsProvider implements PaymentProvider {
       redirectUrl: invoice.invoice_url,
       providerInvoiceId: String(invoice.id),
       providerReferenceId: String(invoice.id),
+      providerAmount,
+      providerCurrency: providerCurrency.toUpperCase(),
+      fxQuote: input.fxQuote ?? null,
       message: "Hosted NOWPayments invoice created.",
       rawResponse: invoice,
       finalizationState: "pending",
@@ -189,11 +195,7 @@ export class NowPaymentsProvider implements PaymentProvider {
     return mapNowPaymentsResult(payload, session.hostedUrl);
   }
 
-  async handleWebhook(input: {
-    headers: Headers;
-    rawBody: string;
-    payload: unknown;
-  }) {
+  async handleWebhook(input: { headers: Headers; rawBody: string; payload: unknown }) {
     const env = getEnv();
     const signature = input.headers.get("x-nowpayments-sig");
 
@@ -210,7 +212,9 @@ export class NowPaymentsProvider implements PaymentProvider {
 
     return {
       ...mapped,
-      externalEventId: `${payload.payment_id ?? payload.invoice_id ?? payload.purchase_id}:${payload.payment_status}`,
+      externalEventId: `${payload.payment_id ?? payload.invoice_id ?? payload.purchase_id}:${
+        payload.payment_status
+      }`,
     };
   }
 }

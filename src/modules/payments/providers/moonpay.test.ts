@@ -50,14 +50,16 @@ describe("MoonPay provider", () => {
 
     const url = buildSignedMoonPayUrl({
       saleorApiUrl: "https://example.saleor.cloud/graphql/",
-      amount: 100,
-      currency: "USD",
+      amount: 2800,
+      currency: "THB",
       merchantReference: "mref_1",
       transactionId: "tx_1",
       idempotencyKey: "idem_1",
       customerEmail: "guest@example.com",
       customerIpAddress: "127.0.0.1",
       baseUrl: "http://localhost:3000",
+      providerAmount: 82.4,
+      providerCurrency: "USD",
       gatewayData: {
         walletAddress: "bc1qcustom",
       },
@@ -68,6 +70,8 @@ describe("MoonPay provider", () => {
     expect(url).toContain("signature=");
     expect(url).toContain("externalTransactionId=tx_1");
     expect(url).toContain("walletAddress=bc1qcustom");
+    expect(url).toContain("baseCurrencyCode=usd");
+    expect(url).toContain("baseCurrencyAmount=82.40");
   });
 
   it("verifies MoonPay webhook signatures", async () => {

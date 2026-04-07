@@ -51,19 +51,19 @@ describe("Ramp Network provider", () => {
 
     const url = buildRampHostedUrl({
       saleorApiUrl: "https://example.saleor.cloud/graphql/",
-      amount: 100,
-      currency: "USD",
+      amount: 2800,
+      currency: "THB",
       merchantReference: "mref_1",
       transactionId: "tx_1",
       idempotencyKey: "idem_1",
       customerEmail: "guest@example.com",
       customerIpAddress: "127.0.0.1",
       baseUrl: "http://localhost:3000",
+      providerAmount: 82.4,
+      providerCurrency: "USD",
       gatewayData: {
         walletAddress: "0xpreferred",
         asset: "MATIC",
-        fiatCurrency: "EUR",
-        fiatValue: "200",
       },
       sourceObjectId: "checkout_1",
       sourceObjectType: "CHECKOUT",
@@ -72,8 +72,8 @@ describe("Ramp Network provider", () => {
     expect(url).toContain("hostApiKey=ramp_key");
     expect(url).toContain("userAddress=0xpreferred");
     expect(url).toContain("swapAsset=MATIC");
-    expect(url).toContain("fiatCurrency=EUR");
-    expect(url).toContain("fiatValue=200");
+    expect(url).toContain("fiatCurrency=USD");
+    expect(url).toContain("fiatValue=82.40");
     expect(url).toContain("webhookStatusUrl=");
   });
 

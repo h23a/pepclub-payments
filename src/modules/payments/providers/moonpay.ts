@@ -53,12 +53,15 @@ const getMoonPayValidation = (): ProviderValidationResult => {
 
 const buildMoonPayBaseUrl = (input: ProviderInitializeInput) => {
   const env = getEnv();
+  const providerCurrency = (
+    input.providerCurrency ??
+    input.gatewayData.baseCurrency ??
+    env.moonpay.defaultBaseCurrency
+  ).toLowerCase();
+  const providerAmount = (input.providerAmount ?? input.amount).toFixed(2);
   const params = new URLSearchParams({
     apiKey: env.moonpay.publishableKey!,
-    baseCurrencyCode: (
-      input.gatewayData.baseCurrency ??
-      env.moonpay.defaultBaseCurrency
-    ).toLowerCase(),
+    baseCurrencyCode: providerCurrency,
     currencyCode: (
       input.gatewayData.quoteCurrency ??
       env.moonpay.defaultQuoteCurrency
@@ -69,7 +72,7 @@ const buildMoonPayBaseUrl = (input: ProviderInitializeInput) => {
     redirectURL: env.moonpay.returnUrl!,
     colorCode: "%2300475b",
     lockAmount: "true",
-    baseCurrencyAmount: String(Math.round(input.amount)),
+    baseCurrencyAmount: providerAmount,
   });
 
   if (env.moonpay.cancelUrl) {
@@ -169,6 +172,9 @@ export class MoonPayProvider implements PaymentProvider {
       hostedUrl: signedUrl,
       redirectUrl: signedUrl,
       providerReferenceId: input.transactionId,
+      providerAmount: input.providerAmount ?? input.amount,
+      providerCurrency: (input.providerCurrency ?? input.gatewayData.baseCurrency ?? "USD").toUpperCase(),
+      fxQuote: input.fxQuote ?? null,
       message: "Hosted MoonPay widget URL created.",
       rawResponse: { url: signedUrl },
       finalizationState: "pending",

@@ -21,6 +21,7 @@ import {
   getPaymentSessionByTransactionId,
   upsertPaymentSession,
 } from "@/modules/db/repository";
+import { createUsdQuoteFromThbAmount } from "@/modules/fx/service";
 import { reportTransactionEvent } from "@/modules/saleor/client";
 import {
   getPaymentGatewayData,
@@ -37,10 +38,12 @@ import {
   PaymentProviderKey,
   PaymentSessionRecord,
   ProviderStatusResult,
+  UsdQuoteMetadata,
 } from "./types";
 
 const makeSessionId = () => crypto.randomUUID();
 const makeEventId = () => crypto.randomUUID();
+const hostedProviderKeys = new Set<PaymentProviderKey>(["nowpayments", "moonpay", "rampnetwork"]);
 
 const safeErrorSummary = (error: unknown) => {
   if (error instanceof AppError) {
@@ -52,6 +55,115 @@ const safeErrorSummary = (error: unknown) => {
   }
 
   return "Unknown payment error";
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const resolveHostedUsdQuote = async (input: {
+  amount: number;
+  currency: string;
+  providerKey: PaymentProviderKey;
+}) => {
+  if (!hostedProviderKeys.has(input.providerKey)) {
+    return null;
+  }
+
+  const env = getEnv();
+  const normalizedCurrency = input.currency.toUpperCase();
+
+  if (normalizedCurrency === env.fx.targetCurrency) {
+    return {
+      displayAmountUsd: Number(input.amount.toFixed(2)),
+      displayCurrency: env.fx.targetCurrency,
+      fxProvider: "saleor",
+      fxRate: 1,
+      fxTimestamp: new Date().toISOString(),
+      providerAmount: Number(input.amount.toFixed(2)),
+      providerCurrency: env.fx.targetCurrency,
+      sourceAmount: Number(input.amount.toFixed(2)),
+      sourceCurrency: normalizedCurrency,
+    } satisfies UsdQuoteMetadata;
+  }
+
+  if (normalizedCurrency !== env.fx.sourceCurrency) {
+    return null;
+  }
+
+  try {
+    return await createUsdQuoteFromThbAmount(input.amount);
+  } catch {
+    throw new ValidationError(
+      `USD quote is unavailable for ${input.providerKey}.`,
+      "We couldn't retrieve the latest USD exchange rate. Please try again."
+    );
+  }
+};
+
+const buildProviderAuditPayload = (input: {
+  existingPayload?: unknown;
+  providerResult: ProviderStatusResult;
+  requestedGatewayData?: PaymentGatewayData;
+}) => {
+  const nextPayload = isRecord(input.existingPayload) ? { ...input.existingPayload } : {};
+
+  if (input.providerResult.rawResponse !== undefined) {
+    nextPayload.providerResponse = input.providerResult.rawResponse;
+  } else if (input.existingPayload !== undefined && !isRecord(input.existingPayload)) {
+    nextPayload.providerResponse = input.existingPayload;
+  }
+
+  if (input.providerResult.providerAmount !== undefined && input.providerResult.providerAmount !== null) {
+    nextPayload.providerAmount = input.providerResult.providerAmount;
+  }
+
+  if (input.providerResult.providerCurrency) {
+    nextPayload.providerCurrency = input.providerResult.providerCurrency;
+  }
+
+  if (input.providerResult.fxQuote) {
+    nextPayload.fxQuote = input.providerResult.fxQuote;
+  }
+
+  if (input.requestedGatewayData && Object.keys(input.requestedGatewayData).length > 0) {
+    nextPayload.requestedGatewayData = input.requestedGatewayData;
+  }
+
+  return Object.keys(nextPayload).length > 0
+    ? nextPayload
+    : input.providerResult.rawResponse ?? input.existingPayload;
+};
+
+const buildProviderEventPayload = (
+  providerResult: ProviderStatusResult,
+  requestedGatewayData?: PaymentGatewayData
+) =>
+  buildProviderAuditPayload({
+    providerResult,
+    requestedGatewayData,
+  });
+
+const buildSyncResponseData = (providerKey: PaymentProviderKey, providerResult: ProviderStatusResult) => {
+  const payload: Record<string, unknown> = {
+    provider: providerKey,
+    providerStatus: providerResult.providerStatus,
+    redirectUrl: providerResult.redirectUrl,
+    hostedUrl: providerResult.hostedUrl,
+  };
+
+  if (providerResult.providerCurrency) {
+    payload.providerCurrency = providerResult.providerCurrency;
+  }
+
+  if (providerResult.providerAmount !== undefined && providerResult.providerAmount !== null) {
+    payload.providerAmount = providerResult.providerAmount;
+  }
+
+  if (providerResult.fxQuote) {
+    payload.fxQuote = providerResult.fxQuote;
+  }
+
+  return payload;
 };
 
 const createSyncWebhookResponse = (input: {
@@ -106,11 +218,17 @@ export const initializePaymentSession = async (input: {
   );
   const sourceIdentifiers = getSourceObjectIdentifiers(input.payload.sourceObject);
   const actionType = getSaleorActionType(input.payload.action.actionType);
-
   const existingSession = await getPaymentSessionByTransactionId(
     input.authData.saleorApiUrl,
     input.payload.transaction.id
   );
+  const usdQuote = existingSession
+    ? null
+    : await resolveHostedUsdQuote({
+        amount: input.payload.action.amount,
+        currency: input.payload.action.currency,
+        providerKey,
+      });
 
   const providerResult = existingSession
     ? await provider.processSession(existingSession)
@@ -125,6 +243,9 @@ export const initializePaymentSession = async (input: {
         customerEmail: sourceIdentifiers.customerEmail,
         baseUrl: input.baseUrl,
         gatewayData,
+        providerAmount: usdQuote?.providerAmount,
+        providerCurrency: usdQuote?.providerCurrency,
+        fxQuote: usdQuote,
         sourceObjectId: sourceIdentifiers.sourceObjectId,
         sourceObjectType: sourceIdentifiers.sourceObjectType,
       });
@@ -153,7 +274,10 @@ export const initializePaymentSession = async (input: {
     hostedUrl: providerResult.hostedUrl,
     redirectUrl: providerResult.redirectUrl,
     idempotencyKey: input.payload.idempotencyKey ?? input.payload.transaction.id,
-    lastWebhookPayload: providerResult.rawResponse,
+    lastWebhookPayload: buildProviderAuditPayload({
+      providerResult,
+      requestedGatewayData: gatewayData,
+    }),
     complianceContract,
     safeErrorSummary: null,
     statusReason: providerResult.message ?? null,
@@ -174,7 +298,7 @@ export const initializePaymentSession = async (input: {
     payload: {
       transactionId: input.payload.transaction.id,
       provider: providerKey,
-      providerResult: providerResult.rawResponse,
+      providerResult: buildProviderEventPayload(providerResult, gatewayData),
     },
   });
 
@@ -191,12 +315,7 @@ export const initializePaymentSession = async (input: {
         input.payload.merchantReference,
       externalUrl: providerResult.redirectUrl ?? providerResult.hostedUrl ?? null,
       message: providerResult.message,
-      data: {
-        provider: providerKey,
-        providerStatus: providerResult.providerStatus,
-        redirectUrl: providerResult.redirectUrl,
-        hostedUrl: providerResult.hostedUrl,
-      },
+      data: buildSyncResponseData(providerKey, providerResult),
     }),
   };
 };
@@ -245,7 +364,10 @@ export const processPaymentSession = async (input: {
     hostedUrl: providerResult.hostedUrl ?? existingSession.hostedUrl,
     redirectUrl: providerResult.redirectUrl ?? existingSession.redirectUrl,
     idempotencyKey: existingSession.idempotencyKey,
-    lastWebhookPayload: providerResult.rawResponse ?? existingSession.lastWebhookPayload,
+    lastWebhookPayload: buildProviderAuditPayload({
+      existingPayload: existingSession.lastWebhookPayload,
+      providerResult,
+    }),
     complianceContract: existingSession.complianceContract,
     safeErrorSummary: null,
     statusReason: providerResult.message ?? existingSession.statusReason,
@@ -263,7 +385,7 @@ export const processPaymentSession = async (input: {
     providerStatus: providerResult.providerStatus,
     saleorStatus: providerResult.saleorStatus,
     message: providerResult.message ?? "Session processed",
-    payload: providerResult.rawResponse,
+    payload: buildProviderEventPayload(providerResult),
   });
 
   return {
@@ -279,10 +401,7 @@ export const processPaymentSession = async (input: {
         input.payload.merchantReference,
       externalUrl: providerResult.redirectUrl ?? providerResult.hostedUrl ?? null,
       message: providerResult.message,
-      data: {
-        provider: existingSession.provider,
-        providerStatus: providerResult.providerStatus,
-      },
+      data: buildSyncResponseData(existingSession.provider, providerResult),
     }),
   };
 };
@@ -315,7 +434,10 @@ export const manuallyReconcilePaymentSession = async (session: PaymentSessionRec
     hostedUrl: providerResult.hostedUrl ?? session.hostedUrl,
     redirectUrl: providerResult.redirectUrl ?? session.redirectUrl,
     idempotencyKey: session.idempotencyKey,
-    lastWebhookPayload: providerResult.rawResponse ?? session.lastWebhookPayload,
+    lastWebhookPayload: buildProviderAuditPayload({
+      existingPayload: session.lastWebhookPayload,
+      providerResult,
+    }),
     complianceContract: session.complianceContract,
     safeErrorSummary: null,
     statusReason: providerResult.message ?? session.statusReason,
@@ -333,7 +455,7 @@ export const manuallyReconcilePaymentSession = async (session: PaymentSessionRec
     providerStatus: providerResult.providerStatus,
     saleorStatus: providerResult.saleorStatus,
     message: providerResult.message ?? "Manual reconcile completed",
-    payload: providerResult.rawResponse,
+    payload: buildProviderEventPayload(providerResult),
   });
 
   return updatedSession;
@@ -442,7 +564,10 @@ export const reconcileProviderWebhook = async (input: {
     hostedUrl: session.hostedUrl,
     redirectUrl: session.redirectUrl,
     idempotencyKey: session.idempotencyKey,
-    lastWebhookPayload: webhookResult.rawResponse,
+    lastWebhookPayload: buildProviderAuditPayload({
+      existingPayload: session.lastWebhookPayload,
+      providerResult: webhookResult,
+    }),
     complianceContract: session.complianceContract,
     safeErrorSummary: null,
     statusReason: webhookResult.message ?? session.statusReason,
@@ -461,7 +586,7 @@ export const reconcileProviderWebhook = async (input: {
     providerStatus: webhookResult.providerStatus,
     saleorStatus: webhookResult.saleorStatus,
     message: webhookResult.message ?? "Provider webhook received",
-    payload: webhookResult.rawResponse,
+    payload: buildProviderEventPayload(webhookResult),
   });
 
   if (!insertedEvent) {

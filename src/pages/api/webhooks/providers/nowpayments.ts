@@ -8,6 +8,7 @@ import {
   withErrorHandling,
   withMethodGuard,
 } from "@/modules/core/http";
+import { logger } from "@/modules/core/logger";
 import { reconcileProviderWebhook } from "@/modules/payments/service";
 import { saleorApp } from "@/saleor-app";
 
@@ -15,7 +16,7 @@ const handler: NextApiHandler = withErrorHandling(
   withMethodGuard("POST", async (request, response) => {
     const rawBody = await readRawRequestBody(request);
     const payload = rawBody ? parseJsonBody(rawBody) : {};
-    await reconcileProviderWebhook({
+    const session = await reconcileProviderWebhook({
       providerKey: "nowpayments",
       rawBody,
       payload,
@@ -24,6 +25,11 @@ const handler: NextApiHandler = withErrorHandling(
       authDataLoader: (saleorApiUrl) => saleorApp.apl.get(saleorApiUrl),
     });
 
+    logger.info("NOWPayments webhook reconciled", {
+      providerPaymentId: session.providerPaymentId,
+      providerStatus: session.providerStatus,
+      saleorTransactionId: session.saleorTransactionId,
+    });
     response.status(200).json({ ok: true });
   })
 );

@@ -74,6 +74,23 @@ const parseMetadataBoolean = (value: string | undefined) => {
   return undefined;
 };
 
+const parseOptionalNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+};
+
+const parseOptionalString = (value: unknown) => (typeof value === "string" ? value : undefined);
+
 export const extractComplianceValue = (sourceObject: SaleorSourceObject): Partial<ComplianceContract> | null => {
   const merged = {
     ...metadataToRecord(sourceObject.metadata),
@@ -151,6 +168,8 @@ export const getSourceObjectIdentifiers = (sourceObject: SaleorSourceObject) => 
 
 export const getPaymentGatewayData = (payload: SaleorTransactionSessionPayload): PaymentGatewayData => {
   const data = payload.data && typeof payload.data === "object" ? (payload.data as Record<string, unknown>) : {};
+  const fxQuote =
+    data.fxQuote && typeof data.fxQuote === "object" ? (data.fxQuote as Record<string, unknown>) : {};
   const compliance = extractComplianceValue(payload.sourceObject);
 
   return {
@@ -168,6 +187,18 @@ export const getPaymentGatewayData = (payload: SaleorTransactionSessionPayload):
     email: typeof data.email === "string" ? data.email : undefined,
     quoteCurrency: typeof data.quoteCurrency === "string" ? data.quoteCurrency : undefined,
     baseCurrency: typeof data.baseCurrency === "string" ? data.baseCurrency : undefined,
+    displayCurrency:
+      parseOptionalString(data.displayCurrency) ?? parseOptionalString(fxQuote.displayCurrency),
+    displayAmountUsd:
+      parseOptionalNumber(data.displayAmountUsd) ?? parseOptionalNumber(fxQuote.displayAmountUsd),
+    providerCurrency:
+      parseOptionalString(data.providerCurrency) ?? parseOptionalString(fxQuote.providerCurrency),
+    providerAmount:
+      parseOptionalNumber(data.providerAmount) ?? parseOptionalNumber(fxQuote.providerAmount),
+    fxRate: parseOptionalNumber(data.fxRate) ?? parseOptionalNumber(fxQuote.fxRate),
+    fxProvider: parseOptionalString(data.fxProvider) ?? parseOptionalString(fxQuote.fxProvider),
+    fxTimestamp:
+      parseOptionalString(data.fxTimestamp) ?? parseOptionalString(fxQuote.fxTimestamp),
     providerData:
       data.providerData && typeof data.providerData === "object"
         ? (data.providerData as Record<string, unknown>)

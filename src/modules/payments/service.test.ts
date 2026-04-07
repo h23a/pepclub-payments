@@ -25,6 +25,10 @@ const saleorClientMock = {
   reportTransactionEvent: vi.fn(),
 };
 
+const fxServiceMock = {
+  createUsdQuoteFromThbAmount: vi.fn(),
+};
+
 vi.mock("@/modules/payments/providers", () => ({
   getProvider: vi.fn(() => providerMock),
 }));
@@ -32,6 +36,7 @@ vi.mock("@/modules/payments/providers", () => ({
 vi.mock("@/modules/db/repository", () => repositoryMock);
 vi.mock("@/modules/compliance/validation", () => complianceMock);
 vi.mock("@/modules/saleor/client", () => saleorClientMock);
+vi.mock("@/modules/fx/service", () => fxServiceMock);
 
 const baseEnv = {
   APP_URL: "http://localhost:3000",
@@ -137,6 +142,7 @@ describe("payment service", () => {
       defaultProvider: "nowpayments",
       nowpaymentsEnabled: true,
       moonpayEnabled: false,
+      rampnetworkEnabled: false,
     });
     repositoryMock.getPaymentSessionByTransactionId.mockResolvedValue(null);
     repositoryMock.upsertPaymentSession.mockResolvedValue(sessionRecord);
@@ -153,6 +159,7 @@ describe("payment service", () => {
       missingFields: [],
       summary: "configured",
     });
+    fxServiceMock.createUsdQuoteFromThbAmount.mockReset();
   });
 
   afterEach(() => {
@@ -193,6 +200,150 @@ describe("payment service", () => {
     expect(providerMock.initializeSession).toHaveBeenCalledOnce();
     expect(response.result).toBe("CHARGE_ACTION_REQUIRED");
     expect(response.externalUrl).toBe("https://hosted.example");
+  });
+
+  it("prefers the server FX quote over client-supplied USD metadata", async () => {
+    const { initializePaymentSession } = await importService();
+    const thbPayload = {
+      ...payload,
+      data: {
+        provider: "nowpayments",
+        displayCurrency: "USD",
+        displayAmountUsd: 1.23,
+        providerCurrency: "USD",
+        providerAmount: 1.23,
+        fxRate: 0.000439,
+        fxProvider: "client",
+        fxTimestamp: "2026-04-01T00:00:00.000Z",
+        fxQuote: {
+          displayCurrency: "USD",
+          displayAmountUsd: 1.23,
+          providerCurrency: "USD",
+          providerAmount: 1.23,
+          fxRate: 0.000439,
+          fxProvider: "client",
+          fxTimestamp: "2026-04-01T00:00:00.000Z",
+        },
+      },
+      action: {
+        ...payload.action,
+        amount: 2800,
+        currency: "THB",
+      },
+    };
+
+    fxServiceMock.createUsdQuoteFromThbAmount.mockResolvedValue({
+      sourceAmount: 2800,
+      sourceCurrency: "THB",
+      displayCurrency: "USD",
+      displayAmountUsd: 82.4,
+      providerCurrency: "USD",
+      providerAmount: 82.4,
+      fxRate: 0.02943,
+      fxProvider: "frankfurter",
+      fxTimestamp: "2026-04-07T00:00:00.000Z",
+    });
+    providerMock.initializeSession.mockResolvedValue({
+      providerStatus: "invoice_created",
+      saleorStatus: "ACTION_REQUIRED",
+      redirectUrl: "https://hosted.example",
+      hostedUrl: "https://hosted.example",
+      providerInvoiceId: "invoice_1",
+      providerReferenceId: "invoice_1",
+      providerCurrency: "USD",
+      providerAmount: 82.4,
+      fxQuote: {
+        sourceAmount: 2800,
+        sourceCurrency: "THB",
+        displayCurrency: "USD",
+        displayAmountUsd: 82.4,
+        providerCurrency: "USD",
+        providerAmount: 82.4,
+        fxRate: 0.02943,
+        fxProvider: "frankfurter",
+        fxTimestamp: "2026-04-07T00:00:00.000Z",
+      },
+      message: "Hosted invoice created",
+      rawResponse: {
+        id: "invoice_1",
+      },
+      finalizationState: "pending",
+    });
+
+    const result = await initializePaymentSession({
+      payload: thbPayload,
+      authData: {
+        saleorApiUrl: "https://example.saleor.cloud/graphql/",
+        token: "token",
+        appId: "app_1",
+      },
+      baseUrl: "http://localhost:3000",
+    });
+
+    expect(fxServiceMock.createUsdQuoteFromThbAmount).toHaveBeenCalledWith(2800);
+    expect(providerMock.initializeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 2800,
+        currency: "THB",
+        providerAmount: 82.4,
+        providerCurrency: "USD",
+        fxQuote: expect.objectContaining({
+          fxRate: 0.02943,
+          providerCurrency: "USD",
+        }),
+      })
+    );
+    expect((result.response as { data?: { fxQuote?: { providerCurrency?: string } } }).data?.fxQuote)
+      .toMatchObject({
+        providerCurrency: "USD",
+      });
+  });
+
+  it("reuses an existing THB session without refetching FX during initialize retries", async () => {
+    const { initializePaymentSession } = await importService();
+    const existingSession = {
+      ...sessionRecord,
+      amount: "2800.000000",
+      currency: "THB",
+    };
+    const thbPayload = {
+      ...payload,
+      action: {
+        ...payload.action,
+        amount: 2800,
+        currency: "THB",
+      },
+    };
+
+    repositoryMock.getPaymentSessionByTransactionId.mockResolvedValue(existingSession);
+    fxServiceMock.createUsdQuoteFromThbAmount.mockRejectedValue(new Error("network error"));
+    providerMock.processSession.mockResolvedValue({
+      providerStatus: "waiting",
+      saleorStatus: "PENDING",
+      redirectUrl: "https://hosted.example",
+      hostedUrl: "https://hosted.example",
+      providerPaymentId: "payment_1",
+      providerReferenceId: "payment_1",
+      message: "Still pending",
+      rawResponse: {
+        payment_status: "waiting",
+      },
+      finalizationState: "pending",
+    });
+
+    const result = await initializePaymentSession({
+      payload: thbPayload,
+      authData: {
+        saleorApiUrl: "https://example.saleor.cloud/graphql/",
+        token: "token",
+        appId: "app_1",
+      },
+      baseUrl: "http://localhost:3000",
+    });
+
+    expect(fxServiceMock.createUsdQuoteFromThbAmount).not.toHaveBeenCalled();
+    expect(providerMock.processSession).toHaveBeenCalledWith(existingSession);
+    expect((result.response as { result: string }).result).toBe("CHARGE_REQUEST");
   });
 
   it("processes an existing session and returns a success response", async () => {

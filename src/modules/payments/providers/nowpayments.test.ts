@@ -91,4 +91,57 @@ describe("NOWPayments provider", () => {
     expect(result.providerPaymentId).toBe("123");
     expect(result.externalEventId).toContain("finished");
   });
+
+  it("uses USD provider quote when present during initialize", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "invoice_1",
+        invoice_url: "https://nowpayments.example/invoice_1",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { NowPaymentsProvider } = await importNowPaymentsModule();
+    const provider = new NowPaymentsProvider();
+    const result = await provider.initializeSession({
+      saleorApiUrl: "https://example.saleor.cloud/graphql/",
+      amount: 2800,
+      currency: "THB",
+      merchantReference: "mref_1",
+      transactionId: "tx_1",
+      idempotencyKey: "idem_1",
+      customerEmail: "guest@example.com",
+      customerIpAddress: "127.0.0.1",
+      baseUrl: "http://localhost:3000",
+      providerAmount: 82.4,
+      providerCurrency: "USD",
+      fxQuote: {
+        sourceAmount: 2800,
+        sourceCurrency: "THB",
+        displayCurrency: "USD",
+        displayAmountUsd: 82.4,
+        providerCurrency: "USD",
+        providerAmount: 82.4,
+        fxRate: 0.02943,
+        fxProvider: "frankfurter",
+        fxTimestamp: "2026-04-07T00:00:00.000Z",
+      },
+      gatewayData: {
+        quoteCurrency: "btc",
+      },
+      sourceObjectId: "checkout_1",
+      sourceObjectType: "CHECKOUT",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      price_amount: 82.4,
+      price_currency: "usd",
+      pay_currency: "btc",
+    });
+    expect(result.providerCurrency).toBe("USD");
+    expect(result.providerAmount).toBe(82.4);
+  });
 });

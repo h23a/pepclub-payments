@@ -139,16 +139,23 @@ const getRampPublicKey = () =>
 
 export const buildRampHostedUrl = (input: ProviderInitializeInput) => {
   const env = getEnv();
+  const configuredFiatValue = Number(input.gatewayData.fiatValue);
+  const providerCurrency =
+    input.providerCurrency ??
+    input.gatewayData.fiatCurrency ??
+    input.gatewayData.baseCurrency ??
+    env.rampnetwork.defaultFiatCurrency!;
+  const providerAmount = (
+    input.providerAmount ??
+    (Number.isFinite(configuredFiatValue) ? configuredFiatValue : input.amount)
+  ).toFixed(2);
   const query = new URLSearchParams({
     hostApiKey: env.rampnetwork.apiKey!,
     hostAppName: env.rampnetwork.hostAppName!,
     hostLogoUrl: env.rampnetwork.hostLogoUrl!,
     defaultFlow: "ONRAMP",
-    fiatCurrency:
-      input.gatewayData.fiatCurrency ??
-      input.gatewayData.baseCurrency ??
-      env.rampnetwork.defaultFiatCurrency!,
-    fiatValue: input.gatewayData.fiatValue ?? env.rampnetwork.defaultFiatValue!,
+    fiatCurrency: providerCurrency,
+    fiatValue: providerAmount,
     swapAsset:
       input.gatewayData.asset ??
       input.gatewayData.quoteCurrency ??
@@ -226,6 +233,7 @@ export class RampNetworkProvider implements PaymentProvider {
       throw new ProviderConfigError("Ramp Network configuration is incomplete.", validation);
     }
 
+    const configuredFiatValue = Number(input.gatewayData.fiatValue);
     const hostedUrl = buildRampHostedUrl(input);
 
     return {
@@ -234,6 +242,16 @@ export class RampNetworkProvider implements PaymentProvider {
       hostedUrl,
       redirectUrl: hostedUrl,
       providerReferenceId: input.transactionId,
+      providerAmount:
+        input.providerAmount ??
+        (Number.isFinite(configuredFiatValue) ? configuredFiatValue : input.amount),
+      providerCurrency: (
+        input.providerCurrency ??
+        input.gatewayData.fiatCurrency ??
+        input.gatewayData.baseCurrency ??
+        getEnv().rampnetwork.defaultFiatCurrency!
+      ).toUpperCase(),
+      fxQuote: input.fxQuote ?? null,
       message: "Hosted Ramp Network URL created.",
       rawResponse: { url: hostedUrl },
       finalizationState: "pending",

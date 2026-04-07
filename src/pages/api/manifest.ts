@@ -16,6 +16,7 @@ export default createManifestHandler({
     const env = getEnv();
     const iframeBaseUrl = env.appIframeBaseUrl ?? appBaseUrl;
     const apiBaseURL = env.appApiBaseUrl ?? appBaseUrl;
+    const publicAssetBaseUrl = iframeBaseUrl;
 
     const manifest: AppManifest = {
       name: "Pepclub Payments",
@@ -32,7 +33,7 @@ export default createManifestHandler({
       author: "Pepclub",
       brand: {
         logo: {
-          default: `${apiBaseURL}/logo.png`,
+          default: `${publicAssetBaseUrl}/logo.png`,
         },
       },
     };

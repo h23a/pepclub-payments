@@ -52,6 +52,11 @@ const rawEnvSchema = z.object({
   NOWPAYMENTS_API_KEY: optionalString(),
   NOWPAYMENTS_IPN_SECRET: optionalString(),
   NOWPAYMENTS_ENV: nowpaymentsEnvEnum.default("sandbox"),
+  FRANKFURTER_API_URL: z.string().url().default("https://api.frankfurter.dev/v1/latest"),
+  FX_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  FX_STALE_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
+  FX_SOURCE_CURRENCY: z.string().default("THB"),
+  FX_TARGET_CURRENCY: z.string().default("USD"),
 
   MOONPAY_PUBLISHABLE_KEY: optionalString(),
   MOONPAY_SECRET_KEY: optionalString(),
@@ -87,6 +92,10 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
     enableRampNetwork: parseBoolean(rawEnv.ENABLE_RAMPNETWORK, true),
     requireSignatureCompletion: parseBoolean(rawEnv.REQUIRE_SIGNATURE_COMPLETION, false),
   };
+
+  if (normalizedEnv.FX_STALE_TTL_SECONDS < normalizedEnv.FX_CACHE_TTL_SECONDS) {
+    throw new Error("FX_STALE_TTL_SECONDS must be greater than or equal to FX_CACHE_TTL_SECONDS.");
+  }
 
   if (normalizedEnv.COMPLIANCE_VALIDATION_MODE === "api") {
     if (!normalizedEnv.COMPLIANCE_APP_INTERNAL_URL) {
@@ -207,6 +216,14 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
           : "https://api-sandbox.nowpayments.io/v1",
       environment: normalizedEnv.NOWPAYMENTS_ENV,
       ipnSecret: normalizedEnv.NOWPAYMENTS_IPN_SECRET,
+    },
+    fx: {
+      apiUrl: normalizedEnv.FRANKFURTER_API_URL,
+      cacheTtlSeconds: normalizedEnv.FX_CACHE_TTL_SECONDS,
+      providerName: "frankfurter",
+      sourceCurrency: normalizedEnv.FX_SOURCE_CURRENCY.toUpperCase(),
+      staleTtlSeconds: normalizedEnv.FX_STALE_TTL_SECONDS,
+      targetCurrency: normalizedEnv.FX_TARGET_CURRENCY.toUpperCase(),
     },
     paymentCancelUrl: normalizedEnv.PAYMENT_CANCEL_URL,
     paymentStatusUrl: normalizedEnv.PAYMENT_STATUS_URL,

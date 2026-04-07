@@ -45,6 +45,8 @@ describe("env config", () => {
 
     expect(env.defaultPaymentProvider).toBe("nowpayments");
     expect(env.enableMoonPay).toBe(false);
+    expect(env.fx.cacheTtlSeconds).toBe(3600);
+    expect(env.fx.targetCurrency).toBe("USD");
     expect(env.nowpayments.environment).toBe("sandbox");
   });
 
@@ -85,5 +87,14 @@ describe("env config", () => {
     });
 
     expect(() => getEnv()).toThrow(/Ramp Network requires/);
+  });
+
+  it("fails fast when stale FX ttl is shorter than cache ttl", async () => {
+    const { getEnv } = await importEnvModule({
+      FX_CACHE_TTL_SECONDS: "3600",
+      FX_STALE_TTL_SECONDS: "120",
+    });
+
+    expect(() => getEnv()).toThrow(/FX_STALE_TTL_SECONDS/);
   });
 });

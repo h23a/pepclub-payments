@@ -1,5 +1,17 @@
 export type PaymentProviderKey = "nowpayments" | "moonpay" | "rampnetwork";
 
+export type UsdQuoteMetadata = {
+  sourceAmount: number;
+  sourceCurrency: string;
+  displayCurrency: string;
+  displayAmountUsd: number;
+  providerCurrency: string;
+  providerAmount: number;
+  fxRate: number;
+  fxProvider: string;
+  fxTimestamp: string;
+};
+
 export type SaleorPaymentStatus =
   | "ACTION_REQUIRED"
   | "PENDING"
@@ -44,6 +56,13 @@ export type PaymentGatewayData = {
   asset?: string;
   fiatCurrency?: string;
   fiatValue?: string;
+  displayCurrency?: string;
+  displayAmountUsd?: number;
+  providerCurrency?: string;
+  providerAmount?: number;
+  fxRate?: number;
+  fxProvider?: string;
+  fxTimestamp?: string;
   providerData?: Record<string, unknown>;
 };
 
@@ -104,6 +123,9 @@ export type ProviderInitializeInput = {
   customerEmail?: string | null;
   baseUrl: string;
   gatewayData: PaymentGatewayData;
+  providerCurrency?: string;
+  providerAmount?: number;
+  fxQuote?: UsdQuoteMetadata | null;
   sourceObjectId: string;
   sourceObjectType: PaymentSessionSourceObjectType;
 };
@@ -118,6 +140,9 @@ export type ProviderStatusResult = {
   providerReferenceId?: string | null;
   message?: string | null;
   rawResponse?: unknown;
+  providerCurrency?: string | null;
+  providerAmount?: number | null;
+  fxQuote?: UsdQuoteMetadata | null;
   finalizationState: FinalizationState;
 };
 
