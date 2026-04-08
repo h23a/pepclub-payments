@@ -1,33 +1,33 @@
 import crypto from "crypto";
 
-import { parseJsonBody, withErrorHandling, withMethodGuard } from "@/modules/core/http";
+import { withErrorHandling, withMethodGuard } from "@/modules/core/http";
 import { createPaymentsProtectedHandler } from "@/modules/core/protected-handler";
+import { parseMoonPaySignUrlBody } from "@/modules/dashboard/validation";
 import { buildSignedMoonPayUrl } from "@/modules/payments/providers/moonpay";
 
 const handler = withErrorHandling(
   withMethodGuard(
     "POST",
     createPaymentsProtectedHandler(async (request, response, context) => {
-      const payload = parseJsonBody<Record<string, unknown>>(request.body);
+      const payload = parseMoonPaySignUrlBody(request.body);
 
       const url = buildSignedMoonPayUrl({
         saleorApiUrl: context.authData.saleorApiUrl,
-        amount: Number(payload.amount ?? 0),
-        currency: String(payload.currency ?? "USD"),
-        merchantReference: String(payload.merchantReference ?? payload.transactionId ?? "manual"),
-        transactionId: String(payload.transactionId ?? crypto.randomUUID()),
-        idempotencyKey: String(payload.idempotencyKey ?? payload.transactionId ?? crypto.randomUUID()),
-        customerEmail: typeof payload.email === "string" ? payload.email : null,
+        amount: payload.amount,
+        currency: payload.currency,
+        merchantReference: payload.merchantReference ?? payload.transactionId ?? "manual",
+        transactionId: payload.transactionId ?? crypto.randomUUID(),
+        idempotencyKey: payload.idempotencyKey ?? payload.transactionId ?? crypto.randomUUID(),
+        customerEmail: payload.email ?? null,
         customerIpAddress: null,
         baseUrl: context.baseUrl,
         gatewayData: {
-          baseCurrency: typeof payload.baseCurrency === "string" ? payload.baseCurrency : undefined,
-          quoteCurrency: typeof payload.quoteCurrency === "string" ? payload.quoteCurrency : undefined,
-          walletAddress:
-            typeof payload.walletAddress === "string" ? payload.walletAddress : undefined,
-          email: typeof payload.email === "string" ? payload.email : undefined,
+          baseCurrency: payload.baseCurrency,
+          quoteCurrency: payload.quoteCurrency,
+          walletAddress: payload.walletAddress,
+          email: payload.email,
         },
-        sourceObjectId: String(payload.sourceObjectId ?? "manual"),
+        sourceObjectId: payload.sourceObjectId ?? "manual",
         sourceObjectType: "CHECKOUT",
       });
 

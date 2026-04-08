@@ -20,6 +20,7 @@ const baseEnv = {
   NOWPAYMENTS_API_KEY: "np_key",
   NOWPAYMENTS_IPN_SECRET: "np_secret",
   NOWPAYMENTS_ENV: "sandbox",
+  PEPCLUB_INTERNAL_API_SHARED_SECRET: "test-shared-secret",
   PAYMENT_CANCEL_URL: "https://example.com/cancel",
   PAYMENT_STATUS_URL: "https://example.com/status",
   PAYMENT_SUCCESS_URL: "https://example.com/success",

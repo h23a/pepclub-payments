@@ -15,6 +15,10 @@ const baseEnv = {
   ENABLE_RAMPNETWORK: "false",
   COMPLIANCE_VALIDATION_MODE: "metadata",
   REQUIRE_SIGNATURE_COMPLETION: "false",
+  FX_CACHE_TTL_SECONDS: "3600",
+  FX_STALE_TTL_SECONDS: "86400",
+  FX_SOURCE_CURRENCY: "THB",
+  FX_TARGET_CURRENCY: "USD",
   NOWPAYMENTS_API_KEY: "np_key",
   NOWPAYMENTS_IPN_SECRET: "np_secret",
   NOWPAYMENTS_ENV: "sandbox",
@@ -96,5 +100,15 @@ describe("env config", () => {
     });
 
     expect(() => getEnv()).toThrow(/FX_STALE_TTL_SECONDS/);
+  });
+
+  it("accepts the canonical shared secret name for compliance API mode", async () => {
+    const { getEnv } = await importEnvModule({
+      COMPLIANCE_VALIDATION_MODE: "api",
+      COMPLIANCE_APP_INTERNAL_URL: "https://compliance.internal",
+      PEPCLUB_INTERNAL_API_SHARED_SECRET: "shared-secret",
+    });
+
+    expect(getEnv().complianceAppSharedSecret).toBe("shared-secret");
   });
 });

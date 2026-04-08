@@ -27,7 +27,7 @@ const fetchComplianceFromInternalApi = async (input: ResolveComplianceInput) => 
 
   if (!env.complianceAppInternalUrl || !env.complianceAppSharedSecret) {
     throw new ComplianceValidationError(
-      "Compliance API mode is enabled but COMPLIANCE_APP_INTERNAL_URL or COMPLIANCE_APP_SHARED_SECRET is missing.",
+      "Compliance API mode is enabled but COMPLIANCE_APP_INTERNAL_URL or PEPCLUB_INTERNAL_API_SHARED_SECRET is missing.",
       "Payment is temporarily unavailable while compliance services are being configured."
     );
   }

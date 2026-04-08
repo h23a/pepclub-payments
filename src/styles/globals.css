@@ -535,11 +535,32 @@ pre {
   align-self: stretch;
 }
 
-.paginationRow {
+.recordsToolbar,
+.paginationBar,
+.paginationActions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
+}
+
+.recordsToolbar,
+.paginationBar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.paginationBar {
+  padding-top: 8px;
+}
+
+.paginationActions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.paginationRow {
+  display: flex;
+  justify-content: space-between;
   padding-top: 8px;
 }
 

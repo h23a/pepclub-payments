@@ -5,9 +5,9 @@
   "license": "(BSD-3-Clause AND CC-BY-4.0)",
   "type": "module",
   "scripts": {
-    "dev": "NODE_OPTIONS='--inspect' next dev",
+    "dev": "NODE_OPTIONS='--inspect' next dev -p ${PORT:-3000}",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p ${PORT:-3000}",
     "lint": "next lint",
     "healthcheck": "curl -fsS http://localhost:${PORT:-3000}/api/health",
     "fetch-schema": "curl https://raw.githubusercontent.com/saleor/saleor/${npm_package_config_saleor_schemaVersion}/saleor/graphql/schema.graphql > graphql/schema.graphql",
@@ -18,7 +18,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:studio": "drizzle-kit studio",
     "generate": "pnpm run /generate:.*/",
-    "generate:app-graphql-types": "graphql-codegen"
+    "generate:app-graphql-types": "graphql-codegen",
+    "generate:app-webhooks-types": "tsx ./scripts/generate-app-webhooks-types.ts"
   },
   "config": {
     "saleor": {

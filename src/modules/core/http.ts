@@ -51,6 +51,14 @@ export const parseJsonBody = <T>(body: unknown): T => {
   return body as T;
 };
 
+export const getSingleQueryValue = (value: string | string[] | undefined) => {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+};
+
 export const readRawRequestBody = async (request: NextApiRequest) => {
   const chunks: Buffer[] = [];
 

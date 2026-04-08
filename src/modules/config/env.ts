@@ -1,24 +1,38 @@
 import { z } from "zod";
 
-import { parseBoolean } from "@/modules/utils/env";
-
-const optionalString = () =>
+const emptyToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((value) => {
     if (value === "") {
       return undefined;
     }
 
     return value;
-  }, z.string().optional());
+  }, schema.optional());
 
-const optionalUrl = () =>
+const optionalString = () => emptyToUndefined(z.string().min(1));
+const optionalUrl = () => emptyToUndefined(z.string().url());
+
+const booleanString = (fallback: boolean) =>
   z.preprocess((value) => {
-    if (value === "") {
-      return undefined;
+    if (value === undefined || value === "") {
+      return fallback;
+    }
+
+    if (typeof value === "boolean") {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      return value.trim().toLowerCase();
     }
 
     return value;
-  }, z.string().url().optional());
+  }, z.union([
+    z.boolean(),
+    z.enum(["1", "0", "true", "false", "yes", "no", "on", "off"]).transform((value) =>
+      ["1", "true", "yes", "on"].includes(value)
+    ),
+  ]));
 
 const providerEnum = z.enum(["nowpayments", "moonpay", "rampnetwork"]);
 const nodeEnvEnum = z.enum(["development", "test", "production"]);
@@ -40,14 +54,16 @@ const rawEnvSchema = z.object({
   APL: aplEnum.default("postgres"),
 
   DEFAULT_PAYMENT_PROVIDER: providerEnum.default("nowpayments"),
-  ENABLE_NOWPAYMENTS: z.string().optional(),
-  ENABLE_MOONPAY: z.string().optional(),
-  ENABLE_RAMPNETWORK: z.string().optional(),
+  ENABLE_NOWPAYMENTS: booleanString(true),
+  ENABLE_MOONPAY: booleanString(true),
+  ENABLE_RAMPNETWORK: booleanString(true),
 
   COMPLIANCE_VALIDATION_MODE: complianceModeEnum.default("metadata"),
   COMPLIANCE_APP_INTERNAL_URL: optionalUrl(),
   COMPLIANCE_APP_SHARED_SECRET: optionalString(),
-  REQUIRE_SIGNATURE_COMPLETION: z.string().optional(),
+  PEPCLUB_INTERNAL_API_SHARED_SECRET: optionalString(),
+  INTERNAL_API_SHARED_SECRET: optionalString(),
+  REQUIRE_SIGNATURE_COMPLETION: booleanString(false),
 
   NOWPAYMENTS_API_KEY: optionalString(),
   NOWPAYMENTS_IPN_SECRET: optionalString(),
@@ -84,13 +100,20 @@ const rawEnvSchema = z.object({
   PAYMENT_STATUS_URL: z.string().url(),
 });
 
+const resolveInternalApiSharedSecret = (rawEnv: z.infer<typeof rawEnvSchema>) =>
+  rawEnv.PEPCLUB_INTERNAL_API_SHARED_SECRET ??
+  rawEnv.COMPLIANCE_APP_SHARED_SECRET ??
+  rawEnv.INTERNAL_API_SHARED_SECRET;
+
 const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
+  const internalApiSharedSecret = resolveInternalApiSharedSecret(rawEnv);
   const normalizedEnv = {
     ...rawEnv,
-    enableMoonPay: parseBoolean(rawEnv.ENABLE_MOONPAY, true),
-    enableNowPayments: parseBoolean(rawEnv.ENABLE_NOWPAYMENTS, true),
-    enableRampNetwork: parseBoolean(rawEnv.ENABLE_RAMPNETWORK, true),
-    requireSignatureCompletion: parseBoolean(rawEnv.REQUIRE_SIGNATURE_COMPLETION, false),
+    complianceAppSharedSecret: internalApiSharedSecret,
+    enableMoonPay: rawEnv.ENABLE_MOONPAY,
+    enableNowPayments: rawEnv.ENABLE_NOWPAYMENTS,
+    enableRampNetwork: rawEnv.ENABLE_RAMPNETWORK,
+    requireSignatureCompletion: rawEnv.REQUIRE_SIGNATURE_COMPLETION,
   };
 
   if (normalizedEnv.FX_STALE_TTL_SECONDS < normalizedEnv.FX_CACHE_TTL_SECONDS) {
@@ -104,9 +127,9 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
       );
     }
 
-    if (!normalizedEnv.COMPLIANCE_APP_SHARED_SECRET) {
+    if (!normalizedEnv.complianceAppSharedSecret) {
       throw new Error(
-        "COMPLIANCE_APP_SHARED_SECRET is required when COMPLIANCE_VALIDATION_MODE=api."
+        "PEPCLUB_INTERNAL_API_SHARED_SECRET is required when COMPLIANCE_VALIDATION_MODE=api. COMPLIANCE_APP_SHARED_SECRET and INTERNAL_API_SHARED_SECRET are still accepted as aliases."
       );
     }
   }
@@ -180,7 +203,7 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
     appIframeBaseUrl: normalizedEnv.APP_IFRAME_BASE_URL ?? normalizedEnv.APP_URL,
     appUrl: normalizedEnv.APP_URL,
     complianceAppInternalUrl: normalizedEnv.COMPLIANCE_APP_INTERNAL_URL,
-    complianceAppSharedSecret: normalizedEnv.COMPLIANCE_APP_SHARED_SECRET,
+    complianceAppSharedSecret: normalizedEnv.complianceAppSharedSecret,
     complianceValidationMode: normalizedEnv.COMPLIANCE_VALIDATION_MODE,
     databaseUrl: normalizedEnv.DATABASE_URL,
     defaultPaymentProvider: normalizedEnv.DEFAULT_PAYMENT_PROVIDER,

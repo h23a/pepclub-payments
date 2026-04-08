@@ -1,4 +1,4 @@
-import { actions, useAppBridge } from "@saleor/app-sdk/app-bridge";
+import { actions, useAppBridge, useAuthenticatedFetch } from "@saleor/app-sdk/app-bridge";
 import { Box, Button, Checkbox, Chip, SearchInput, Text } from "@saleor/macaw-ui";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -320,6 +320,7 @@ const sortProviders = <T extends { provider: (typeof providerOrder)[number] }>(p
   );
 
 export const DashboardPage = () => {
+  const authenticatedFetch = useAuthenticatedFetch();
   const { appBridge, appBridgeState } = useAppBridge();
   const [section, setSection] = useState<(typeof sections)[number]["id"]>("overview");
   const [loading, setLoading] = useState(true);
@@ -367,26 +368,18 @@ export const DashboardPage = () => {
       body?: Record<string, unknown>;
     }
   ) => {
-    if (!appBridgeState?.saleorApiUrl || !appBridgeState.token) {
-      throw new Error("Saleor app bridge is not ready.");
-    }
-
-    const response = await fetch(path, {
+    const response = await authenticatedFetch(path, {
       method: init?.method ?? "GET",
-      headers: {
-        "content-type": "application/json",
-        "authorization-bearer": appBridgeState.token,
-        "saleor-api-url": appBridgeState.saleorApiUrl,
-      },
+      headers: init?.body ? { "content-type": "application/json" } : undefined,
       body: init?.body ? JSON.stringify(init.body) : undefined,
     });
-    const payload = await response.json();
+    const payload = (await response.json()) as T & { code?: string; error?: string; message?: string };
 
     if (!response.ok) {
-      throw new Error(payload?.message ?? "Request failed");
+      throw new Error(payload.error ?? payload.message ?? "Request failed.");
     }
 
-    return payload as T;
+    return payload;
   };
 
   const openExternal = (url: string) => {
@@ -592,10 +585,26 @@ export const DashboardPage = () => {
 
   const handleTransactionSearch = async (event: FormEvent) => {
     event.preventDefault();
-    setAppliedTransactionSearch(search.trim());
+    const normalizedSearch = search.trim();
+
+    setAppliedTransactionSearch(normalizedSearch);
     setTransactionPage(1);
+    setNotice(null);
+    setError(null);
     await loadDashboard({
-      transactionSearch: search.trim(),
+      transactionSearch: normalizedSearch,
+      transactionPage: 1,
+    });
+  };
+
+  const handleTransactionSearchReset = async () => {
+    setSearch("");
+    setAppliedTransactionSearch("");
+    setTransactionPage(1);
+    setNotice(null);
+    setError(null);
+    await loadDashboard({
+      transactionSearch: "",
       transactionPage: 1,
     });
   };
@@ -1087,7 +1096,7 @@ export const DashboardPage = () => {
                       placeholder="Search transaction or provider reference"
                       onChange={(event) => setSearch(event.target.value)}
                     />
-                    <Button type="submit" className="searchButton">
+                    <Button type="submit" className="searchButton" disabled={loading}>
                       Search
                     </Button>
                   </Box>
@@ -1097,7 +1106,28 @@ export const DashboardPage = () => {
               <Box className="appCard">
                 <SectionHeader title="Results" />
                 <Box className="stackMedium">
-                  {transactions.items.length === 0 ? (
+                  <Box className="recordsToolbar">
+                    <Text as="p" color="default2" className="mutedText">
+                      {transactionsRangeLabel}
+                    </Text>
+                    {appliedTransactionSearch ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void handleTransactionSearchReset()}
+                        disabled={loading}
+                      >
+                        Clear search
+                      </Button>
+                    ) : null}
+                  </Box>
+                  {loading && transactions.items.length === 0 ? (
+                    <Box className="emptyState">
+                      <Text as="p" className="bodyText">
+                        Loading transactions...
+                      </Text>
+                    </Box>
+                  ) : transactions.items.length === 0 ? (
                     <Box className="emptyState">
                       <Text as="p" className="bodyText">
                         {appliedTransactionSearch
@@ -1271,11 +1301,11 @@ export const DashboardPage = () => {
                     </Box>
                   )}
 
-                  <Box className="paginationRow">
+                  <Box className="paginationBar">
                     <Text as="p" color="default2" className="mutedText">
                       {transactionsRangeLabel}
                     </Text>
-                    <Box className="actionsRow end paginationActions">
+                    <Box className="paginationActions">
                       <Button
                         variant="secondary"
                         disabled={!transactions.hasPreviousPage || loading}

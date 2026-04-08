@@ -1,13 +1,13 @@
-import { parseJsonBody, withErrorHandling, withMethodGuard } from "@/modules/core/http";
-import { createPaymentsProtectedHandler } from "@/modules/core/protected-handler";
+import { withErrorHandling, withMethodGuard } from "@/modules/core/http";
+import { createDashboardProtectedHandler } from "@/modules/dashboard/protected-handler";
 import { reconcileTransactionById } from "@/modules/dashboard/service";
+import { parseReconcileRequestBody } from "@/modules/dashboard/validation";
 
 const handler = withErrorHandling(
   withMethodGuard(
     "POST",
-    createPaymentsProtectedHandler(async (request, response, context) => {
-      const payload = parseJsonBody<Record<string, unknown>>(request.body);
-      const saleorTransactionId = String(payload.saleorTransactionId ?? "");
+    createDashboardProtectedHandler(async (request, response, context) => {
+      const { saleorTransactionId } = parseReconcileRequestBody(request.body);
       const result = await reconcileTransactionById(context.authData, saleorTransactionId);
 
       response.status(200).json(result);

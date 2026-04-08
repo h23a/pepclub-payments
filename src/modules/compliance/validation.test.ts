@@ -155,7 +155,7 @@ describe("compliance validation", () => {
     const { resolveComplianceContract } = await importComplianceModule({
       COMPLIANCE_VALIDATION_MODE: "api",
       COMPLIANCE_APP_INTERNAL_URL: "https://compliance.internal",
-      COMPLIANCE_APP_SHARED_SECRET: "shared_secret",
+      PEPCLUB_INTERNAL_API_SHARED_SECRET: "shared_secret",
     });
 
     const contract = await resolveComplianceContract({
@@ -200,7 +200,7 @@ describe("compliance validation", () => {
     const { resolveComplianceContract } = await importComplianceModule({
       COMPLIANCE_VALIDATION_MODE: "api",
       COMPLIANCE_APP_INTERNAL_URL: "https://compliance.internal",
-      COMPLIANCE_APP_SHARED_SECRET: "shared_secret",
+      PEPCLUB_INTERNAL_API_SHARED_SECRET: "shared_secret",
     });
 
     await expect(
