@@ -61,6 +61,13 @@ const baseEnv = {
   PAYMENT_STATUS_URL: "https://example.com/status",
 };
 
+const defaultCountryRestrictions = {
+  version: 1 as const,
+  mode: "allow_list" as const,
+  countries: ["TH"],
+  addressSource: "shipping_then_billing" as const,
+};
+
 const payload = {
   issuedAt: "2026-04-02T13:00:00.000Z",
   merchantReference: "mref_1",
@@ -85,6 +92,18 @@ const payload = {
     email: "guest@example.com",
     channel: {
       slug: "default-channel",
+    },
+    shippingAddress: {
+      country: {
+        code: "TH",
+        country: "Thailand",
+      },
+    },
+    billingAddress: {
+      country: {
+        code: "TH",
+        country: "Thailand",
+      },
     },
     metadata: [],
     privateMetadata: [],
@@ -143,6 +162,7 @@ describe("payment service", () => {
       nowpaymentsEnabled: true,
       moonpayEnabled: false,
       rampnetworkEnabled: false,
+      countryRestrictions: defaultCountryRestrictions,
     });
     repositoryMock.getPaymentSessionByTransactionId.mockResolvedValue(null);
     repositoryMock.upsertPaymentSession.mockResolvedValue(sessionRecord);
@@ -200,6 +220,128 @@ describe("payment service", () => {
     expect(providerMock.initializeSession).toHaveBeenCalledOnce();
     expect(response.result).toBe("CHARGE_ACTION_REQUIRED");
     expect(response.externalUrl).toBe("https://hosted.example");
+  });
+
+  it("rejects payment initialization outside the allowed country list", async () => {
+    const { initializePaymentSession } = await importService();
+
+    await expect(
+      initializePaymentSession({
+        payload: {
+          ...payload,
+          sourceObject: {
+            ...payload.sourceObject,
+            shippingAddress: {
+              country: {
+                code: "SG",
+                country: "Singapore",
+              },
+            },
+            billingAddress: {
+              country: {
+                code: "SG",
+                country: "Singapore",
+              },
+            },
+          },
+        },
+        authData: {
+          saleorApiUrl: "https://example.saleor.cloud/graphql/",
+          token: "token",
+          appId: "app_1",
+        },
+        baseUrl: "http://localhost:3000",
+      })
+    ).rejects.toMatchObject({
+      safeMessage: "Payments are currently available only for addresses in: TH.",
+    });
+
+    expect(providerMock.initializeSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects payment initialization when no address is present", async () => {
+    const { initializePaymentSession } = await importService();
+
+    await expect(
+      initializePaymentSession({
+        payload: {
+          ...payload,
+          sourceObject: {
+            ...payload.sourceObject,
+            shippingAddress: null,
+            billingAddress: null,
+          },
+        },
+        authData: {
+          saleorApiUrl: "https://example.saleor.cloud/graphql/",
+          token: "token",
+          appId: "app_1",
+        },
+        baseUrl: "http://localhost:3000",
+      })
+    ).rejects.toMatchObject({
+      safeMessage: "A shipping or billing address is required before payment can start.",
+    });
+
+    expect(providerMock.initializeSession).not.toHaveBeenCalled();
+  });
+
+  it("allows non-TH addresses when the country rule is allow_all", async () => {
+    const { initializePaymentSession } = await importService();
+    repositoryMock.getOrCreateDefaultSettings.mockResolvedValue({
+      defaultProvider: "nowpayments",
+      nowpaymentsEnabled: true,
+      moonpayEnabled: false,
+      rampnetworkEnabled: false,
+      countryRestrictions: {
+        ...defaultCountryRestrictions,
+        mode: "allow_all",
+        countries: [],
+      },
+    });
+    providerMock.initializeSession.mockResolvedValue({
+      providerStatus: "invoice_created",
+      saleorStatus: "ACTION_REQUIRED",
+      redirectUrl: "https://hosted.example",
+      hostedUrl: "https://hosted.example",
+      providerInvoiceId: "invoice_1",
+      providerReferenceId: "invoice_1",
+      message: "Hosted invoice created",
+      rawResponse: {
+        id: "invoice_1",
+      },
+      finalizationState: "pending",
+    });
+
+    const result = await initializePaymentSession({
+      payload: {
+        ...payload,
+        sourceObject: {
+          ...payload.sourceObject,
+          shippingAddress: {
+            country: {
+              code: "SG",
+              country: "Singapore",
+            },
+          },
+          billingAddress: {
+            country: {
+              code: "SG",
+              country: "Singapore",
+            },
+          },
+        },
+      },
+      authData: {
+        saleorApiUrl: "https://example.saleor.cloud/graphql/",
+        token: "token",
+        appId: "app_1",
+      },
+      baseUrl: "http://localhost:3000",
+    });
+
+    expect(providerMock.initializeSession).toHaveBeenCalledOnce();
+    expect((result.response as { result: string }).result).toBe("CHARGE_ACTION_REQUIRED");
   });
 
   it("prefers the server FX quote over client-supplied USD metadata", async () => {

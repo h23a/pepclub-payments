@@ -6,6 +6,15 @@ export type MetadataItem = {
   value: string;
 };
 
+type SaleorCountry = {
+  code: string;
+  country: string;
+};
+
+type SaleorAddress = {
+  country: SaleorCountry;
+};
+
 type CheckoutSourceObject = {
   __typename: "Checkout";
   id: string;
@@ -15,6 +24,8 @@ type CheckoutSourceObject = {
   };
   metadata: MetadataItem[];
   privateMetadata: MetadataItem[];
+  billingAddress?: SaleorAddress | null;
+  shippingAddress?: SaleorAddress | null;
 };
 
 type OrderSourceObject = {
@@ -27,6 +38,8 @@ type OrderSourceObject = {
   };
   metadata: MetadataItem[];
   privateMetadata: MetadataItem[];
+  billingAddress?: SaleorAddress | null;
+  shippingAddress?: SaleorAddress | null;
 };
 
 export type SaleorSourceObject = CheckoutSourceObject | OrderSourceObject;

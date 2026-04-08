@@ -11,6 +11,8 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+import type { PaymentCountryRestrictionConfig } from "@/modules/payments/types";
+
 export const saleorAppAuth = pgTable("saleor_app_auth", {
   saleorApiUrl: text("saleor_api_url").primaryKey(),
   token: text("token").notNull(),
@@ -33,6 +35,12 @@ export const appSettings = pgTable(
     nowpaymentsEnabled: boolean("nowpayments_enabled").notNull().default(true),
     moonpayEnabled: boolean("moonpay_enabled").notNull().default(true),
     rampnetworkEnabled: boolean("rampnetwork_enabled").notNull().default(true),
+    countryRestrictions: jsonb("country_restrictions")
+      .$type<PaymentCountryRestrictionConfig>()
+      .notNull()
+      .default(
+        sql`'{"version":1,"mode":"allow_list","countries":["TH"],"addressSource":"shipping_then_billing"}'::jsonb`
+      ),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()

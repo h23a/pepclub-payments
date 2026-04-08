@@ -30,6 +30,11 @@ import {
   SaleorTransactionSessionPayload,
 } from "@/modules/saleor/types";
 
+import {
+  defaultPaymentCountryRestrictions,
+  isCountryAllowedByRestrictions,
+  resolveSourceObjectCountryCode,
+} from "./country-restrictions";
 import { resolveProviderKey } from "./provider-resolver";
 import { getProvider } from "./providers";
 import { mapSaleorStatusToSyncResult } from "./status-mapping";
@@ -191,6 +196,7 @@ const resolveSettingsForTenant = async (saleorApiUrl: string) =>
     nowpaymentsEnabled: getEnv().enableNowPayments,
     moonpayEnabled: getEnv().enableMoonPay,
     rampnetworkEnabled: getEnv().enableRampNetwork,
+    countryRestrictions: defaultPaymentCountryRestrictions,
   });
 
 export const initializePaymentSession = async (input: {
@@ -200,6 +206,38 @@ export const initializePaymentSession = async (input: {
 }) => {
   const gatewayData = getPaymentGatewayData(input.payload);
   const settings = await resolveSettingsForTenant(input.authData.saleorApiUrl);
+  const countryCode = resolveSourceObjectCountryCode(input.payload.sourceObject);
+
+  if (!countryCode) {
+    throw new ValidationError(
+      "Payment initialization requires a shipping or billing country code.",
+      "A shipping or billing address is required before payment can start.",
+      {
+        saleorApiUrl: input.authData.saleorApiUrl,
+        sourceObjectId: input.payload.sourceObject.id,
+        sourceObjectType: input.payload.sourceObject.__typename,
+      }
+    );
+  }
+
+  if (!isCountryAllowedByRestrictions(settings.countryRestrictions, countryCode)) {
+    const restrictionSummary =
+      settings.countryRestrictions.mode === "allow_list"
+        ? `Payments are currently available only for addresses in: ${settings.countryRestrictions.countries.join(", ")}.`
+        : "This address is not eligible for payment under the current country restrictions.";
+
+    throw new ValidationError(
+      `Payment initialization blocked for country ${countryCode}.`,
+      restrictionSummary,
+      {
+        configuredCountries: settings.countryRestrictions.countries,
+        countryCode,
+        restrictionMode: settings.countryRestrictions.mode,
+        saleorApiUrl: input.authData.saleorApiUrl,
+      }
+    );
+  }
+
   const providerKey = resolveProviderKey(gatewayData, settings);
   const provider = getProvider(providerKey);
   const validation = provider.validateConfig();

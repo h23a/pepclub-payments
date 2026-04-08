@@ -7,7 +7,10 @@ const handler = withErrorHandling(
     "GET",
     createPaymentsProtectedHandler(async (request, response, context) => {
       const search = typeof request.query.search === "string" ? request.query.search : undefined;
-      const transactions = await lookupTransactions(context.authData, search);
+      const parsedPage =
+        typeof request.query.page === "string" ? Number.parseInt(request.query.page, 10) : 1;
+      const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+      const transactions = await lookupTransactions(context.authData, { search, page });
 
       response.status(200).json(transactions);
     })

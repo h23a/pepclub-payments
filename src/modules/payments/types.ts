@@ -1,5 +1,24 @@
 export type PaymentProviderKey = "nowpayments" | "moonpay" | "rampnetwork";
 
+export type PaymentCountryRestrictionMode = "allow_all" | "allow_list" | "block_list";
+
+export type PaymentCountryRestrictionAddressSource = "shipping_then_billing";
+
+export type PaymentCountryRestrictionConfig = {
+  version: 1;
+  mode: PaymentCountryRestrictionMode;
+  countries: string[];
+  addressSource: PaymentCountryRestrictionAddressSource;
+};
+
+export type PaymentAppSettingsInput = {
+  defaultProvider: PaymentProviderKey;
+  nowpaymentsEnabled: boolean;
+  moonpayEnabled: boolean;
+  rampnetworkEnabled: boolean;
+  countryRestrictions: PaymentCountryRestrictionConfig;
+};
+
 export type UsdQuoteMetadata = {
   sourceAmount: number;
   sourceCurrency: string;

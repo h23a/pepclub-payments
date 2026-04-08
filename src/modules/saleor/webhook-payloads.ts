@@ -27,6 +27,18 @@ export const transactionInitializeSessionSubscription = /* GraphQL */ `
             channel {
               slug
             }
+            shippingAddress {
+              country {
+                code
+                country
+              }
+            }
+            billingAddress {
+              country {
+                code
+                country
+              }
+            }
             metadata {
               key
               value
@@ -42,6 +54,18 @@ export const transactionInitializeSessionSubscription = /* GraphQL */ `
             userEmail
             channel {
               slug
+            }
+            shippingAddress {
+              country {
+                code
+                country
+              }
+            }
+            billingAddress {
+              country {
+                code
+                country
+              }
             }
             metadata {
               key
@@ -86,6 +110,18 @@ export const transactionProcessSessionSubscription = /* GraphQL */ `
             channel {
               slug
             }
+            shippingAddress {
+              country {
+                code
+                country
+              }
+            }
+            billingAddress {
+              country {
+                code
+                country
+              }
+            }
             metadata {
               key
               value
@@ -101,6 +137,18 @@ export const transactionProcessSessionSubscription = /* GraphQL */ `
             userEmail
             channel {
               slug
+            }
+            shippingAddress {
+              country {
+                code
+                country
+              }
+            }
+            billingAddress {
+              country {
+                code
+                country
+              }
             }
             metadata {
               key

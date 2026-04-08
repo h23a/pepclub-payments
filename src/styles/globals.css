@@ -3,6 +3,16 @@ a {
   color: inherit;
 }
 
+a.docReferenceLink {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a.docReferenceLink:hover {
+  color: #1d4ed8;
+}
+
 code {
   background: transparent;
   border: 1px solid var(--app-border);
@@ -90,9 +100,7 @@ pre {
 .stackMedium,
 .stackLarge,
 .helpItem,
-.helpPoints,
-.listActions,
-.actionsRow {
+.helpPoints {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -174,12 +182,22 @@ pre {
 
 .statusRow,
 .sectionTabs,
-.actionsRow,
-.listActions {
+.actionsRow {
   display: flex;
+  flex-direction: row;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  min-width: 0;
+}
+
+.listActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
 }
 
 .actionsRow {
@@ -271,6 +289,25 @@ pre {
   gap: 18px;
 }
 
+.providerSettingsSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.providerSettingsColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.providerSettingsSaveRow {
+  width: 100%;
+  margin-top: 4px;
+}
+
 .noticeCard {
   box-shadow: none;
   background: #f8fafc;
@@ -303,6 +340,33 @@ pre {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+}
+
+.dateRangePanel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.dateRangePanel .dateRangeApplyRow {
+  min-width: 0;
+  align-self: end;
+  align-items: center;
+  justify-content: stretch;
+  height: auto;
+}
+
+.dateRangePanel .applyCustomRangeButton {
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+  height: auto;
+  box-sizing: border-box;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .summaryCard {
@@ -471,6 +535,83 @@ pre {
   align-self: stretch;
 }
 
+.paginationRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.paginationActions {
+  width: auto;
+}
+
+.dashboardTableWrapper {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  background: #ffffff;
+}
+
+.dashboardTable {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.dashboardTable th,
+.dashboardTable td {
+  padding: 14px 16px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.dashboardTable th {
+  font-size: var(--mu-font-size-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--app-muted);
+  background: var(--app-surface);
+  white-space: nowrap;
+}
+
+.dashboardTableBody + .dashboardTableBody tr:first-child td {
+  border-top: 1px solid var(--app-border);
+}
+
+.dashboardTableCell {
+  background: #ffffff;
+  transition: background 0.15s ease;
+}
+
+.dashboardTableRow:hover .dashboardTableCell,
+.dashboardTableBody.isExpanded .dashboardTableCell {
+  background: var(--app-surface);
+}
+
+.dashboardTableActionsCell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.dashboardTableActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dashboardTableDetailRow td {
+  border-top: 1px solid var(--app-border);
+}
+
+.dashboardTableDetailCell {
+  padding: 0;
+  background: var(--app-surface);
+}
+
 .transactionCard {
   padding: 18px;
   display: flex;
@@ -555,13 +696,27 @@ pre {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .dateRangePanel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dateRangePanel .dateRangeApplyRow {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
   .cardGrid.splitGrid,
   .singleColumnOnNarrow {
+    grid-template-columns: 1fr;
+  }
+
+  .providerSettingsSplit {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 960px) {
+  .dateRangePanel,
   .fieldGrid,
   .helpGrid,
   .summaryGrid,
@@ -570,9 +725,14 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .dateRangePanel .dateRangeApplyRow {
+    grid-column: auto;
+  }
+
   .pageHeader,
   .heroHeader,
   .transactionHeader,
+  .paginationRow,
   .providerRow,
   .listRow,
   .timelineItem {
@@ -601,6 +761,7 @@ pre {
   }
 
   .cardGrid,
+  .dateRangePanel,
   .searchRow,
   .definitionList.compact {
     grid-template-columns: 1fr;
@@ -608,5 +769,9 @@ pre {
 
   .toggleText {
     padding-left: 0;
+  }
+
+  .dashboardTable {
+    min-width: 720px;
   }
 }

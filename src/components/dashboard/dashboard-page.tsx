@@ -2,6 +2,12 @@ import { actions, useAppBridge } from "@saleor/app-sdk/app-bridge";
 import { Box, Button, Checkbox, Chip, SearchInput, Text } from "@saleor/macaw-ui";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import {
+  defaultPaymentCountryRestrictions,
+  parseCountryCodesInput,
+  stringifyCountryCodes,
+} from "@/modules/payments/country-restrictions";
+
 type OverviewResponse = {
   connection: {
     installed: boolean;
@@ -14,6 +20,12 @@ type OverviewResponse = {
     nowpaymentsEnabled: boolean;
     moonpayEnabled: boolean;
     rampnetworkEnabled: boolean;
+    countryRestrictions: {
+      version: 1;
+      mode: "allow_all" | "allow_list" | "block_list";
+      countries: string[];
+      addressSource: "shipping_then_billing";
+    };
   };
   providers: Array<{
     provider: "nowpayments" | "moonpay" | "rampnetwork";
@@ -26,6 +38,29 @@ type OverviewResponse = {
   stats: {
     recentTransactionCount: number;
     recentWebhookCount: number;
+    latestWebhook?: {
+      providerStatus?: string | null;
+      createdAt: string;
+    } | null;
+    lastSafeErrorSummary?: string | null;
+  };
+  paymentRecap: {
+    range: "today" | "7d" | "month" | "custom";
+    from: string;
+    to: string;
+    transactionCount: number;
+    successCount: number;
+    failedCount: number;
+    pendingCount: number;
+    resolvedTransactionCount: number;
+    amountsByCurrency: Array<{
+      currency: string;
+      successAmount: number;
+      failedAmount: number;
+      pendingAmount: number;
+    }>;
+    webhookCount: number;
+    successRate: number | null;
     latestWebhook?: {
       providerStatus?: string | null;
       createdAt: string;
@@ -72,7 +107,7 @@ type DiagnosticsResponse = {
   lastSafeErrorSummary?: string | null;
 };
 
-type TransactionLookupResponse = Array<{
+type TransactionLookupItem = {
   session: {
     id: string;
     saleorTransactionId: string;
@@ -95,7 +130,16 @@ type TransactionLookupResponse = Array<{
     saleorStatus?: string | null;
     createdAt: string;
   }>;
-}>;
+};
+
+type TransactionLookupResponse = {
+  items: TransactionLookupItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+};
 
 const formatDate = (value?: string | null) => {
   if (!value) {
@@ -108,16 +152,117 @@ const formatDate = (value?: string | null) => {
   }).format(new Date(value));
 };
 
+const formatPercent = (value?: number | null) => {
+  if (value === null || value === undefined) {
+    return "N/A";
+  }
+
+  return `${value.toFixed(1)}%`;
+};
+
+const formatDateOnly = (value?: string | null) => {
+  if (!value) {
+    return "Unknown";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+  }).format(new Date(value));
+};
+
+const formatDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const formatCurrencyAmount = (amount: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+};
+
+const getPresetDateRange = (range: "today" | "7d" | "month", now = new Date()) => {
+  const end = formatDateInputValue(now);
+  const start = new Date(now);
+
+  if (range === "today") {
+    return { from: end, to: end };
+  }
+
+  if (range === "month") {
+    start.setDate(1);
+    return {
+      from: formatDateInputValue(start),
+      to: end,
+    };
+  }
+
+  start.setDate(start.getDate() - 6);
+
+  return {
+    from: formatDateInputValue(start),
+    to: end,
+  };
+};
+
+const getRecapRangeLabel = (
+  range: OverviewResponse["paymentRecap"]["range"],
+  from?: string,
+  to?: string
+) => {
+  if (range === "today") {
+    return "Today";
+  }
+
+  if (range === "month") {
+    return "This Month";
+  }
+
+  if (range === "custom") {
+    return `${formatDateOnly(from)} - ${formatDateOnly(to)}`;
+  }
+
+  return "Last 7 Days";
+};
+
 const prettyJson = (value: unknown) => JSON.stringify(value ?? {}, null, 2);
 
 const providerOrder = ["rampnetwork", "moonpay", "nowpayments"] as const;
+const recapRanges = [
+  { id: "today", label: "Today" },
+  { id: "7d", label: "Last 7 Days" },
+  { id: "month", label: "This Month" },
+] as const;
+
+type RecapFilterState = {
+  range: OverviewResponse["paymentRecap"]["range"];
+  from: string;
+  to: string;
+};
+
+const emptyTransactionsResponse: TransactionLookupResponse = {
+  items: [],
+  page: 1,
+  pageSize: 20,
+  totalCount: 0,
+  hasPreviousPage: false,
+  hasNextPage: false,
+};
 
 const sections = [
   { id: "overview", label: "Overview" },
   { id: "providers", label: "Providers" },
   { id: "transactions", label: "Transactions" },
   { id: "diagnostics", label: "Diagnostics" },
-  { id: "help", label: "Help" },
 ] as const;
 
 const classNames = (...values: Array<string | false | null | undefined>) =>
@@ -182,16 +327,34 @@ export const DashboardPage = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
-  const [transactions, setTransactions] = useState<TransactionLookupResponse>([]);
+  const [transactions, setTransactions] = useState<TransactionLookupResponse>(emptyTransactionsResponse);
   const [search, setSearch] = useState("");
+  const [appliedTransactionSearch, setAppliedTransactionSearch] = useState("");
+  const [transactionPage, setTransactionPage] = useState(1);
+  const [draftRecapFilter, setDraftRecapFilter] = useState<RecapFilterState>(() => ({
+    range: "7d",
+    ...getPresetDateRange("7d"),
+  }));
+  const [appliedRecapFilter, setAppliedRecapFilter] = useState<RecapFilterState>(() => ({
+    range: "7d",
+    ...getPresetDateRange("7d"),
+  }));
   const [draftSettings, setDraftSettings] = useState({
     defaultProvider: "nowpayments" as "nowpayments" | "moonpay" | "rampnetwork",
     nowpaymentsEnabled: true,
     moonpayEnabled: true,
     rampnetworkEnabled: true,
+    countryRestrictions: {
+      ...defaultPaymentCountryRestrictions,
+      countries: [...defaultPaymentCountryRestrictions.countries],
+    },
   });
+  const [countryRestrictionsInput, setCountryRestrictionsInput] = useState(() =>
+    stringifyCountryCodes(defaultPaymentCountryRestrictions.countries)
+  );
   const [savingSettings, setSavingSettings] = useState(false);
   const [reconcilingTransactionId, setReconcilingTransactionId] = useState<string | null>(null);
+  const [expandedTransactionId, setExpandedTransactionId] = useState<string | null>(null);
 
   const isEmbedded = Boolean(
     appBridgeState?.ready && appBridgeState.saleorApiUrl && appBridgeState.token
@@ -244,7 +407,34 @@ export const DashboardPage = () => {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const loadDashboard = async (transactionSearch?: string) => {
+  const buildOverviewPath = () => {
+    const params = new URLSearchParams();
+    params.set("range", appliedRecapFilter.range);
+
+    if (appliedRecapFilter.range === "custom") {
+      const from = new Date(`${appliedRecapFilter.from}T00:00:00`);
+      const to = new Date(`${appliedRecapFilter.to}T23:59:59.999`);
+
+      params.set("from", from.toISOString());
+      params.set("to", to.toISOString());
+    }
+
+    return `/api/dashboard/overview?${params.toString()}`;
+  };
+
+  const buildTransactionsPath = (transactionSearch?: string, page = 1) => {
+    const params = new URLSearchParams();
+
+    if (transactionSearch?.trim()) {
+      params.set("search", transactionSearch.trim());
+    }
+
+    params.set("page", String(page));
+
+    return `/api/dashboard/transactions?${params.toString()}`;
+  };
+
+  const loadDashboard = async (options?: { transactionSearch?: string; transactionPage?: number }) => {
     if (!isEmbedded) {
       setLoading(false);
       return;
@@ -254,25 +444,31 @@ export const DashboardPage = () => {
     setError(null);
 
     try {
+      const overviewPath = buildOverviewPath();
+      const transactionsPath = buildTransactionsPath(
+        options?.transactionSearch ?? appliedTransactionSearch,
+        options?.transactionPage ?? transactionPage
+      );
       const [overviewResponse, diagnosticsResponse, transactionsResponse] = await Promise.all([
-        fetchAppApi<OverviewResponse>("/api/dashboard/overview"),
+        fetchAppApi<OverviewResponse>(overviewPath),
         fetchAppApi<DiagnosticsResponse>("/api/dashboard/diagnostics"),
-        fetchAppApi<TransactionLookupResponse>(
-          `/api/dashboard/transactions${
-            transactionSearch ? `?search=${encodeURIComponent(transactionSearch)}` : ""
-          }`
-        ),
+        fetchAppApi<TransactionLookupResponse>(transactionsPath),
       ]);
 
       setOverview(overviewResponse);
       setDiagnostics(diagnosticsResponse);
       setTransactions(transactionsResponse);
+      setExpandedTransactionId(null);
       setDraftSettings({
         defaultProvider: overviewResponse.settings.defaultProvider,
         nowpaymentsEnabled: overviewResponse.settings.nowpaymentsEnabled,
         moonpayEnabled: overviewResponse.settings.moonpayEnabled,
         rampnetworkEnabled: overviewResponse.settings.rampnetworkEnabled,
+        countryRestrictions: overviewResponse.settings.countryRestrictions,
       });
+      setCountryRestrictionsInput(
+        stringifyCountryCodes(overviewResponse.settings.countryRestrictions.countries)
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load app data.");
     } finally {
@@ -283,7 +479,14 @@ export const DashboardPage = () => {
   useEffect(() => {
     void loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEmbedded, appBridgeState?.saleorApiUrl, appBridgeState?.token]);
+  }, [
+    isEmbedded,
+    appBridgeState?.saleorApiUrl,
+    appBridgeState?.token,
+    appliedRecapFilter.range,
+    appliedRecapFilter.from,
+    appliedRecapFilter.to,
+  ]);
 
   const providerStatusByKey = useMemo(
     () => new Map(overview?.providers.map((provider) => [provider.provider, provider]) ?? []),
@@ -321,25 +524,40 @@ export const DashboardPage = () => {
   const summaryCards = useMemo(
     () => [
       {
-        label: "Default provider",
-        value: overview?.settings.defaultProvider ?? "Unknown",
+        label: "Payment success rate",
+        value: formatPercent(overview?.paymentRecap.successRate),
       },
       {
-        label: "Recent transactions",
-        value: String(overview?.stats.recentTransactionCount ?? 0),
+        label: "Failed payments",
+        value: String(overview?.paymentRecap.failedCount ?? 0),
+      },
+      {
+        label: "Transactions in range",
+        value: String(overview?.paymentRecap.transactionCount ?? 0),
       },
       {
         label: "Provider webhooks",
-        value: String(overview?.stats.recentWebhookCount ?? 0),
-      },
-      {
-        label: "Latest provider event",
-        value: formatDate(overview?.stats.latestWebhook?.createdAt),
-        compact: true,
+        value: String(overview?.paymentRecap.webhookCount ?? 0),
       },
     ],
     [overview]
   );
+  const activeRecapRangeLabel = getRecapRangeLabel(
+    overview?.paymentRecap.range ?? appliedRecapFilter.range,
+    overview?.paymentRecap.from,
+    overview?.paymentRecap.to
+  );
+  const transactionsRangeLabel =
+    transactions.totalCount === 0
+      ? "Showing 0 results"
+      : `Showing ${(transactions.page - 1) * transactions.pageSize + 1}-${Math.min(
+          transactions.page * transactions.pageSize,
+          transactions.totalCount
+        )} of ${transactions.totalCount}`;
+  const isCustomDraftRangeValid =
+    Boolean(draftRecapFilter.from) &&
+    Boolean(draftRecapFilter.to) &&
+    new Date(draftRecapFilter.from).getTime() <= new Date(draftRecapFilter.to).getTime();
 
   const handleSettingsSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -348,12 +566,23 @@ export const DashboardPage = () => {
     setError(null);
 
     try {
+      const nextCountryRestrictions = {
+        ...draftSettings.countryRestrictions,
+        countries: parseCountryCodesInput(countryRestrictionsInput),
+      } as const;
+
       await fetchAppApi("/api/dashboard/settings", {
         method: "POST",
-        body: draftSettings,
+        body: {
+          ...draftSettings,
+          countryRestrictions: nextCountryRestrictions,
+        },
       });
       setNotice("Settings saved.");
-      await loadDashboard(search);
+      await loadDashboard({
+        transactionSearch: appliedTransactionSearch,
+        transactionPage,
+      });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save settings.");
     } finally {
@@ -363,7 +592,45 @@ export const DashboardPage = () => {
 
   const handleTransactionSearch = async (event: FormEvent) => {
     event.preventDefault();
-    await loadDashboard(search);
+    setAppliedTransactionSearch(search.trim());
+    setTransactionPage(1);
+    await loadDashboard({
+      transactionSearch: search.trim(),
+      transactionPage: 1,
+    });
+  };
+
+  const handleShortcutRecapRange = (range: (typeof recapRanges)[number]["id"]) => {
+    const nextFilter = {
+      range,
+      ...getPresetDateRange(range),
+    } satisfies RecapFilterState;
+
+    setDraftRecapFilter(nextFilter);
+    setAppliedRecapFilter(nextFilter);
+    setError(null);
+  };
+
+  const handleCustomDateApply = () => {
+    if (!isCustomDraftRangeValid) {
+      setError("Choose a valid custom date range before applying it.");
+      return;
+    }
+
+    setAppliedRecapFilter({
+      range: "custom",
+      from: draftRecapFilter.from,
+      to: draftRecapFilter.to,
+    });
+    setError(null);
+  };
+
+  const handleTransactionsPageChange = async (nextPage: number) => {
+    setTransactionPage(nextPage);
+    await loadDashboard({
+      transactionSearch: appliedTransactionSearch,
+      transactionPage: nextPage,
+    });
   };
 
   const handleReconcile = async (saleorTransactionId: string) => {
@@ -378,11 +645,14 @@ export const DashboardPage = () => {
           saleorTransactionId,
         },
       });
-      setNotice(`Reconciled ${saleorTransactionId}.`);
-      await loadDashboard(search);
+      setNotice(`Synced ${saleorTransactionId} from provider.`);
+      await loadDashboard({
+        transactionSearch: appliedTransactionSearch,
+        transactionPage,
+      });
     } catch (reconcileError) {
       setError(
-        reconcileError instanceof Error ? reconcileError.message : "Reconcile request failed."
+        reconcileError instanceof Error ? reconcileError.message : "Could not sync from provider."
       );
     } finally {
       setReconcilingTransactionId(null);
@@ -405,7 +675,6 @@ export const DashboardPage = () => {
           </Text>
         </Box>
         <Box className="statusRow">
-          <StatusChip>{diagnostics?.database.ok ? "DB ready" : "DB issue"}</StatusChip>
           <StatusChip>{overview?.connection.environment ?? "loading"}</StatusChip>
         </Box>
       </Box>
@@ -437,12 +706,8 @@ export const DashboardPage = () => {
                     <Text size={2} as="span" className="heroEyebrow">
                       Payment Operations
                     </Text>
-                    <Text size={8} as="h2" className="headingText">
-                      Hosted provider control plane for Pepclub checkout flows
-                    </Text>
                     <Text as="p" color="default2" className="mutedText">
-                      Keep provider routing, transaction reconciliation, and installation health
-                      visible in a compact admin view.
+                      Activity window: {activeRecapRangeLabel}
                     </Text>
                   </Box>
                   <Box className="statusRow">
@@ -458,6 +723,65 @@ export const DashboardPage = () => {
                   </Box>
                 </Box>
 
+                <Box className="sectionTabs">
+                  {recapRanges.map((item) => (
+                    <Button
+                      key={item.id}
+                      variant="secondary"
+                      className={classNames(
+                        "sectionButton",
+                        overview.paymentRecap.range === item.id && "isActive"
+                      )}
+                      onClick={() => handleShortcutRecapRange(item.id)}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </Box>
+
+                <Box className="dateRangePanel">
+                  <label className="fieldLabel">
+                    Start date
+                    <input
+                      type="date"
+                      className="selectInput"
+                      value={draftRecapFilter.from}
+                      onChange={(event) =>
+                        setDraftRecapFilter((current) => ({
+                          ...current,
+                          range: "custom",
+                          from: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="fieldLabel">
+                    End date
+                    <input
+                      type="date"
+                      className="selectInput"
+                      value={draftRecapFilter.to}
+                      onChange={(event) =>
+                        setDraftRecapFilter((current) => ({
+                          ...current,
+                          range: "custom",
+                          to: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <Box className="actionsRow end dateRangeApplyRow">
+                    <Button
+                      variant="secondary"
+                      className="applyCustomRangeButton"
+                      onClick={handleCustomDateApply}
+                      disabled={!isCustomDraftRangeValid || loading}
+                    >
+                      Apply custom range
+                    </Button>
+                  </Box>
+                </Box>
+
                 <Box className="summaryGrid">
                   {summaryCards.map((item) => (
                     <Box key={item.label} className="summaryCard">
@@ -465,14 +789,50 @@ export const DashboardPage = () => {
                         {item.label}
                       </Text>
                       <Text
-                        size={item.compact ? 5 : 8}
-                        className={item.compact ? "summaryValueSmall" : "summaryValue"}
+                        size={8}
+                        className="summaryValue"
                       >
                         {item.value}
                       </Text>
                     </Box>
                   ))}
                 </Box>
+              </Box>
+
+              <Box className="appCard">
+                <SectionHeader
+                  title="Amount by status"
+                  description="Success shows revenue received. Failed and pending show attempted amount totals grouped by currency."
+                />
+                {overview.paymentRecap.amountsByCurrency.length === 0 ? (
+                  <Box className="emptyState">
+                    <Text as="p" className="bodyText">
+                      No payment amounts found in the selected date range.
+                    </Text>
+                  </Box>
+                ) : (
+                  <Box className="fieldGrid">
+                    {overview.paymentRecap.amountsByCurrency.map((entry) => (
+                      <Box key={entry.currency} className="miniCard">
+                        <Text className="labelText">{entry.currency}</Text>
+                        <dl className="definitionList compact">
+                          <div>
+                            <dt>Success revenue</dt>
+                            <dd>{formatCurrencyAmount(entry.successAmount, entry.currency)}</dd>
+                          </div>
+                          <div>
+                            <dt>Failed attempted</dt>
+                            <dd>{formatCurrencyAmount(entry.failedAmount, entry.currency)}</dd>
+                          </div>
+                          <div>
+                            <dt>Pending attempted</dt>
+                            <dd>{formatCurrencyAmount(entry.pendingAmount, entry.currency)}</dd>
+                          </div>
+                        </dl>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
               </Box>
 
               <Box className="cardGrid">
@@ -506,20 +866,16 @@ export const DashboardPage = () => {
                       <dd>{overview.settings.defaultProvider}</dd>
                     </div>
                     <div>
-                      <dt>Compliance mode</dt>
-                      <dd>
-                        {overview.secrets.complianceSharedSecret === "configured"
-                          ? "Signed compliance API"
-                          : "Metadata validation"}
-                      </dd>
-                    </div>
-                    <div>
                       <dt>MoonPay key</dt>
                       <dd>{overview.secrets.moonpayPublishableKey}</dd>
                     </div>
                     <div>
                       <dt>NOWPayments key</dt>
                       <dd>{overview.secrets.nowpaymentsApiKey}</dd>
+                    </div>
+                    <div>
+                      <dt>Ramp key</dt>
+                      <dd>{overview.secrets.rampnetworkApiKey}</dd>
                     </div>
                   </dl>
                 </Box>
@@ -528,20 +884,24 @@ export const DashboardPage = () => {
                   <SectionHeader title="Recent activity" />
                   <dl className="definitionList">
                     <div>
-                      <dt>Recent transactions</dt>
-                      <dd>{overview.stats.recentTransactionCount}</dd>
+                      <dt>Selected window</dt>
+                      <dd>{activeRecapRangeLabel}</dd>
                     </div>
                     <div>
-                      <dt>Recent provider webhooks</dt>
-                      <dd>{overview.stats.recentWebhookCount}</dd>
+                      <dt>Pending / awaiting finalization</dt>
+                      <dd>{overview.paymentRecap.pendingCount}</dd>
                     </div>
                     <div>
                       <dt>Latest provider event</dt>
-                      <dd>{formatDate(overview.stats.latestWebhook?.createdAt)}</dd>
+                      <dd>{formatDate(overview.paymentRecap.latestWebhook?.createdAt)}</dd>
                     </div>
                     <div>
                       <dt>Latest provider status</dt>
-                      <dd>{overview.stats.latestWebhook?.providerStatus ?? "None yet"}</dd>
+                      <dd>{overview.paymentRecap.latestWebhook?.providerStatus ?? "None in range"}</dd>
+                    </div>
+                    <div>
+                      <dt>Latest payment issue</dt>
+                      <dd>{overview.paymentRecap.lastSafeErrorSummary ?? "None recorded"}</dd>
                     </div>
                   </dl>
                 </Box>
@@ -551,159 +911,158 @@ export const DashboardPage = () => {
 
           {section === "providers" ? (
             <Box className="stackLarge">
-              <Box className="cardGrid splitGrid">
-                <Box as="form" className="appCard formCard" onSubmit={handleSettingsSubmit}>
-                  <SectionHeader
-                    title="Provider settings"
-                    description="Runtime toggles are stored per Saleor installation. Secrets stay env-backed and are never shown after save."
-                  />
+              <Box as="form" className="appCard formCard" onSubmit={handleSettingsSubmit}>
+                <SectionHeader
+                  title="Provider settings"
+                  description="Runtime toggles are stored per Saleor installation. Secrets stay env-backed and are never shown after save."
+                />
 
-                  <Box
-                    className={`toggleRow ${draftSettings.rampnetworkEnabled ? "isActive" : ""}`}
-                  >
-                    <Checkbox
-                      checked={draftSettings.rampnetworkEnabled}
-                      onCheckedChange={(checked) =>
-                        setDraftSettings((current) => ({
-                          ...current,
-                          rampnetworkEnabled: Boolean(checked),
-                        }))
-                      }
+                <Box className="providerSettingsSplit">
+                  <Box className="providerSettingsColumn">
+                    <Text as="p" className="labelText">
+                      Enabled providers
+                    </Text>
+                    <Box
+                      className={`toggleRow ${draftSettings.rampnetworkEnabled ? "isActive" : ""}`}
                     >
-                      Ramp Network
-                    </Checkbox>
-                    <span className="toggleText">
-                      {providerStatusByKey.get("rampnetwork")?.environment ?? "unknown"} · API key:{" "}
-                      {overview.secrets.rampnetworkApiKey} · webhook key:{" "}
-                      {overview.secrets.rampnetworkWebhookSecret}
-                    </span>
-                  </Box>
-
-                  <Box className={`toggleRow ${draftSettings.moonpayEnabled ? "isActive" : ""}`}>
-                    <Checkbox
-                      checked={draftSettings.moonpayEnabled}
-                      onCheckedChange={(checked) =>
-                        setDraftSettings((current) => ({
-                          ...current,
-                          moonpayEnabled: Boolean(checked),
-                        }))
-                      }
-                    >
-                      MoonPay
-                    </Checkbox>
-                    <span className="toggleText">
-                      {providerStatusByKey.get("moonpay")?.environment ?? "unknown"} · publishable
-                      key: {overview.secrets.moonpayPublishableKey}
-                    </span>
-                  </Box>
-
-                  <Box
-                    className={`toggleRow ${draftSettings.nowpaymentsEnabled ? "isActive" : ""}`}
-                  >
-                    <Checkbox
-                      checked={draftSettings.nowpaymentsEnabled}
-                      onCheckedChange={(checked) =>
-                        setDraftSettings((current) => ({
-                          ...current,
-                          nowpaymentsEnabled: Boolean(checked),
-                        }))
-                      }
-                    >
-                      NOWPayments
-                    </Checkbox>
-                    <span className="toggleText">
-                      {providerStatusByKey.get("nowpayments")?.environment ?? "unknown"} · key
-                      status: {overview.secrets.nowpaymentsApiKey}
-                    </span>
-                  </Box>
-
-                  <label className="fieldLabel">
-                    Fallback provider
-                    <select
-                      className="selectInput"
-                      value={draftSettings.defaultProvider}
-                      onChange={(event) =>
-                        setDraftSettings((current) => ({
-                          ...current,
-                          defaultProvider: event.target.value as
-                            | "nowpayments"
-                            | "moonpay"
-                            | "rampnetwork",
-                        }))
-                      }
-                    >
-                      <option value="rampnetwork">Ramp Network</option>
-                      <option value="moonpay">MoonPay</option>
-                      <option value="nowpayments">NOWPayments</option>
-                    </select>
-                    <small className="mutedText">
-                      Used only when `paymentGateway.data` does not include a provider choice from
-                      the storefront.
-                    </small>
-                  </label>
-
-                  <Box className="fieldGrid">
-                    <Box className="miniCard">
-                      <Text className="labelText">MoonPay defaults</Text>
-                      <Text as="p" color="default2" className="mutedText">
-                        Base and quote currency come from env-backed operational defaults.
-                      </Text>
+                      <Checkbox
+                        checked={draftSettings.rampnetworkEnabled}
+                        onCheckedChange={(checked) =>
+                          setDraftSettings((current) => ({
+                            ...current,
+                            rampnetworkEnabled: Boolean(checked),
+                          }))
+                        }
+                      >
+                        Ramp Network
+                      </Checkbox>
+                      <span className="toggleText">
+                        {providerStatusByKey.get("rampnetwork")?.environment ?? "unknown"} · API key:{" "}
+                        {overview.secrets.rampnetworkApiKey} · webhook key:{" "}
+                        {overview.secrets.rampnetworkWebhookSecret}
+                      </span>
                     </Box>
-                    <Box className="miniCard">
-                      <Text className="labelText">Ramp defaults</Text>
-                      <Text as="p" color="default2" className="mutedText">
-                        Asset, fiat currency/value, and fallback wallet address come from env-backed
-                        defaults.
-                      </Text>
+
+                    <Box className={`toggleRow ${draftSettings.moonpayEnabled ? "isActive" : ""}`}>
+                      <Checkbox
+                        checked={draftSettings.moonpayEnabled}
+                        onCheckedChange={(checked) =>
+                          setDraftSettings((current) => ({
+                            ...current,
+                            moonpayEnabled: Boolean(checked),
+                          }))
+                        }
+                      >
+                        MoonPay
+                      </Checkbox>
+                      <span className="toggleText">
+                        {providerStatusByKey.get("moonpay")?.environment ?? "unknown"} · publishable
+                        key: {overview.secrets.moonpayPublishableKey}
+                      </span>
                     </Box>
-                    <Box className="miniCard">
-                      <Text className="labelText">Compliance integration</Text>
-                      <Text as="p" color="default2" className="mutedText">
-                        {overview.secrets.complianceSharedSecret === "configured"
-                          ? "Signed compliance API is configured."
-                          : "Metadata validation mode is ready."}
-                      </Text>
+
+                    <Box
+                      className={`toggleRow ${draftSettings.nowpaymentsEnabled ? "isActive" : ""}`}
+                    >
+                      <Checkbox
+                        checked={draftSettings.nowpaymentsEnabled}
+                        onCheckedChange={(checked) =>
+                          setDraftSettings((current) => ({
+                            ...current,
+                            nowpaymentsEnabled: Boolean(checked),
+                          }))
+                        }
+                      >
+                        NOWPayments
+                      </Checkbox>
+                      <span className="toggleText">
+                        {providerStatusByKey.get("nowpayments")?.environment ?? "unknown"} · key
+                        status: {overview.secrets.nowpaymentsApiKey}
+                      </span>
                     </Box>
                   </Box>
 
-                  <Box className="actionsRow end">
-                    <Button type="submit" disabled={savingSettings}>
-                      {savingSettings ? "Saving…" : "Save settings"}
-                    </Button>
+                  <Box className="providerSettingsColumn">
+                    <label className="fieldLabel">
+                      Fallback provider
+                      <select
+                        className="selectInput"
+                        value={draftSettings.defaultProvider}
+                        onChange={(event) =>
+                          setDraftSettings((current) => ({
+                            ...current,
+                            defaultProvider: event.target.value as
+                              | "nowpayments"
+                              | "moonpay"
+                              | "rampnetwork",
+                          }))
+                        }
+                      >
+                        <option value="rampnetwork">Ramp Network</option>
+                        <option value="moonpay">MoonPay</option>
+                        <option value="nowpayments">NOWPayments</option>
+                      </select>
+                      <small className="mutedText">
+                        Used only when `paymentGateway.data` does not include a provider choice from
+                        the storefront.
+                      </small>
+                    </label>
+
+                    <label className="fieldLabel">
+                      Payment country rule
+                      <select
+                        className="selectInput"
+                        value={draftSettings.countryRestrictions.mode}
+                        onChange={(event) =>
+                          setDraftSettings((current) => ({
+                            ...current,
+                            countryRestrictions: {
+                              ...current.countryRestrictions,
+                              mode: event.target.value as "allow_all" | "allow_list" | "block_list",
+                            },
+                          }))
+                        }
+                      >
+                        <option value="allow_all">Allow all countries</option>
+                        <option value="allow_list">Allow only selected countries</option>
+                        <option value="block_list">Block selected countries</option>
+                      </select>
+                      <small className="mutedText">
+                        This rule blocks payment initialization only. Checkout and cart updates stay
+                        available.
+                      </small>
+                    </label>
+
+                    <label className="fieldLabel">
+                      Country codes
+                      <input
+                        type="text"
+                        className="selectInput"
+                        value={countryRestrictionsInput}
+                        onChange={(event) => setCountryRestrictionsInput(event.target.value)}
+                        placeholder="TH, SG, MY"
+                        disabled={draftSettings.countryRestrictions.mode === "allow_all"}
+                      />
+                      <small className="mutedText">
+                        Use ISO country codes (see{" "}
+                        <a
+                          href="https://docs.saleor.io/api-reference/miscellaneous/enums/country-code"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="docReferenceLink"
+                        >
+                          Saleor CountryCode enum
+                        </a>
+                        ) separated by commas. Default rollout is Thailand-only (`TH`).
+                      </small>
+                    </label>
                   </Box>
                 </Box>
 
-                <Box className="appCard">
-                  <SectionHeader
-                    title="Provider readiness"
-                    description="Keep enablement, environment, and config completeness grouped in one panel."
-                  />
-                  <Box className="listStack">
-                    {orderedProviders.map((provider) => (
-                      <Box key={provider.provider} className="listRow">
-                        <Box className="textStack">
-                          <Text className="labelText">{provider.provider}</Text>
-                          <Text as="p" color="default2" className="mutedText">
-                            {provider.environment} · {provider.summary}
-                          </Text>
-                          {provider.missingFields.length > 0 ? (
-                            <Text as="p" color="default2" className="mutedText">
-                              Missing: {provider.missingFields.join(", ")}
-                            </Text>
-                          ) : null}
-                        </Box>
-                        <Box className="listActions">
-                          <StatusChip>
-                            {provider.enabled
-                              ? provider.isConfigured
-                                ? "Ready"
-                                : "Needs config"
-                              : "Disabled"}
-                          </StatusChip>
-                        </Box>
-                      </Box>
-                    ))}
-                  </Box>
+                <Box className="actionsRow end providerSettingsSaveRow">
+                  <Button type="submit" disabled={savingSettings}>
+                    {savingSettings ? "Saving…" : "Save settings"}
+                  </Button>
                 </Box>
               </Box>
             </Box>
@@ -738,92 +1097,201 @@ export const DashboardPage = () => {
               <Box className="appCard">
                 <SectionHeader title="Results" />
                 <Box className="stackMedium">
-                  {transactions.length === 0 ? (
+                  {transactions.items.length === 0 ? (
                     <Box className="emptyState">
                       <Text as="p" className="bodyText">
-                        {search ? "No matching transactions found." : "No transactions found yet."}
+                        {appliedTransactionSearch
+                          ? "No matching transactions found."
+                          : "No transactions found yet."}
                       </Text>
                     </Box>
                   ) : (
-                    transactions.map((entry) => (
-                      <Box key={entry.session.id} className="transactionCard">
-                        <Box className="transactionHeader">
-                          <Box className="textStack">
-                            <Text className="labelText">{entry.session.saleorTransactionId}</Text>
-                            <Text as="p" color="default2" className="mutedText">
-                              {entry.session.provider} · {entry.session.providerStatus} ·{" "}
-                              {formatDate(entry.session.updatedAt)}
-                            </Text>
-                          </Box>
-                          <Box className="statusRow">
-                            <StatusChip>{entry.session.saleorStatus}</StatusChip>
-                            <Button
-                              variant="secondary"
-                              disabled={
-                                reconcilingTransactionId === entry.session.saleorTransactionId
-                              }
-                              onClick={() => handleReconcile(entry.session.saleorTransactionId)}
+                    <Box className="dashboardTableWrapper">
+                      <table className="dashboardTable">
+                        <thead>
+                          <tr>
+                            <th scope="col">Transaction</th>
+                            <th scope="col">Provider</th>
+                            <th scope="col">Reference</th>
+                            <th scope="col">Saleor status</th>
+                            <th scope="col">Provider status</th>
+                            <th scope="col">Updated</th>
+                            <th scope="col">Actions</th>
+                          </tr>
+                        </thead>
+                        {transactions.items.map((entry) => {
+                          const isExpanded = expandedTransactionId === entry.session.id;
+                          const providerReference =
+                            entry.session.providerReferenceId ??
+                            entry.session.providerPaymentId ??
+                            entry.session.providerInvoiceId ??
+                            "Not assigned yet";
+
+                          return (
+                            <tbody
+                              key={entry.session.id}
+                              className={classNames("dashboardTableBody", isExpanded && "isExpanded")}
                             >
-                              {reconcilingTransactionId === entry.session.saleorTransactionId
-                                ? "Reconciling…"
-                                : "Manual reconcile"}
-                            </Button>
-                            {(entry.session.redirectUrl || entry.session.hostedUrl) && (
-                              <Button
-                                variant="secondary"
-                                onClick={() =>
-                                  openExternal(
-                                    entry.session.redirectUrl ?? entry.session.hostedUrl ?? ""
-                                  )
-                                }
-                              >
-                                Open hosted flow
-                              </Button>
-                            )}
-                          </Box>
-                        </Box>
+                              <tr className="dashboardTableRow">
+                                <td className="dashboardTableCell">
+                                  <Box className="textStack">
+                                    <Text className="labelText">
+                                      {entry.session.saleorTransactionId}
+                                    </Text>
+                                    <Text as="p" color="default2" className="mutedText">
+                                      Session <code>{entry.session.id}</code>
+                                    </Text>
+                                  </Box>
+                                </td>
+                                <td className="dashboardTableCell">
+                                  <Text as="p" className="bodyText">
+                                    {entry.session.provider}
+                                  </Text>
+                                </td>
+                                <td className="dashboardTableCell">
+                                  <Box className="textStack">
+                                    <Text as="p" className="bodyText">
+                                      {providerReference}
+                                    </Text>
+                                    <Text as="p" color="default2" className="mutedText">
+                                      {entry.session.safeErrorSummary ?? "No safe error"}
+                                    </Text>
+                                  </Box>
+                                </td>
+                                <td className="dashboardTableCell">
+                                  <StatusChip>{entry.session.saleorStatus}</StatusChip>
+                                </td>
+                                <td className="dashboardTableCell">
+                                  <StatusChip>{entry.session.providerStatus}</StatusChip>
+                                </td>
+                                <td className="dashboardTableCell">
+                                  <Text as="p" className="bodyText">
+                                    {formatDate(entry.session.updatedAt)}
+                                  </Text>
+                                </td>
+                                <td className="dashboardTableCell dashboardTableActionsCell">
+                                  <Box className="dashboardTableActions">
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      aria-expanded={isExpanded}
+                                      onClick={() =>
+                                        setExpandedTransactionId((current) =>
+                                          current === entry.session.id ? null : entry.session.id
+                                        )
+                                      }
+                                    >
+                                      {isExpanded ? "Hide details" : "Details"}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      title="Fetch the latest status from the payment provider and update Saleor for this transaction."
+                                      disabled={
+                                        reconcilingTransactionId === entry.session.saleorTransactionId
+                                      }
+                                      onClick={() => handleReconcile(entry.session.saleorTransactionId)}
+                                    >
+                                      {reconcilingTransactionId === entry.session.saleorTransactionId
+                                        ? "Syncing..."
+                                        : "Sync from provider"}
+                                    </Button>
+                                    {entry.session.redirectUrl || entry.session.hostedUrl ? (
+                                      <Button
+                                        type="button"
+                                        variant="secondary"
+                                        title="Opens the provider-hosted payment page (checkout or return URL) in a new tab."
+                                        onClick={() =>
+                                          openExternal(
+                                            entry.session.redirectUrl ??
+                                              entry.session.hostedUrl ??
+                                              ""
+                                          )
+                                        }
+                                      >
+                                        Open payment page
+                                      </Button>
+                                    ) : null}
+                                  </Box>
+                                </td>
+                              </tr>
+                              {isExpanded ? (
+                                <tr className="dashboardTableDetailRow">
+                                  <td colSpan={7} className="dashboardTableDetailCell">
+                                    <Box className="transactionCard">
+                                      <dl className="definitionList compact">
+                                        <div>
+                                          <dt>Provider reference</dt>
+                                          <dd>{providerReference}</dd>
+                                        </div>
+                                        <div>
+                                          <dt>Safe error summary</dt>
+                                          <dd>{entry.session.safeErrorSummary ?? "None"}</dd>
+                                        </div>
+                                        <div>
+                                          <dt>Hosted URL</dt>
+                                          <dd>{entry.session.hostedUrl ?? "Not available"}</dd>
+                                        </div>
+                                        <div>
+                                          <dt>Redirect URL</dt>
+                                          <dd>{entry.session.redirectUrl ?? "Not available"}</dd>
+                                        </div>
+                                      </dl>
 
-                        <dl className="definitionList compact">
-                          <div>
-                            <dt>Provider reference</dt>
-                            <dd>
-                              {entry.session.providerReferenceId ??
-                                entry.session.providerPaymentId ??
-                                entry.session.providerInvoiceId ??
-                                "Not assigned yet"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Safe error summary</dt>
-                            <dd>{entry.session.safeErrorSummary ?? "None"}</dd>
-                          </div>
-                        </dl>
+                                      <Box className="timeline">
+                                        {entry.timeline.map((timelineEvent) => (
+                                          <Box key={timelineEvent.id} className="timelineItem">
+                                            <Text as="p" className="bodyText">
+                                              {timelineEvent.eventType} ·{" "}
+                                              {timelineEvent.providerStatus ??
+                                                timelineEvent.saleorStatus ??
+                                                "n/a"}
+                                            </Text>
+                                            <Text as="p" color="default2" className="mutedText">
+                                              {formatDate(timelineEvent.createdAt)}
+                                            </Text>
+                                          </Box>
+                                        ))}
+                                      </Box>
 
-                        <Box className="timeline">
-                          {entry.timeline.map((timelineEvent) => (
-                            <Box key={timelineEvent.id} className="timelineItem">
-                              <Text as="p" className="bodyText">
-                                {timelineEvent.eventType} ·{" "}
-                                {timelineEvent.providerStatus ??
-                                  timelineEvent.saleorStatus ??
-                                  "n/a"}
-                              </Text>
-                              <Text as="p" color="default2" className="mutedText">
-                                {formatDate(timelineEvent.createdAt)}
-                              </Text>
-                            </Box>
-                          ))}
-                        </Box>
-
-                        <details className="detailsPanel">
-                          <summary>Sanitized payload summary</summary>
-                          <pre className="monoBlock">
-                            {prettyJson(entry.session.lastWebhookPayload)}
-                          </pre>
-                        </details>
-                      </Box>
-                    ))
+                                      <details className="detailsPanel">
+                                        <summary>Sanitized payload summary</summary>
+                                        <pre className="monoBlock">
+                                          {prettyJson(entry.session.lastWebhookPayload)}
+                                        </pre>
+                                      </details>
+                                    </Box>
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </tbody>
+                          );
+                        })}
+                      </table>
+                    </Box>
                   )}
+
+                  <Box className="paginationRow">
+                    <Text as="p" color="default2" className="mutedText">
+                      {transactionsRangeLabel}
+                    </Text>
+                    <Box className="actionsRow end paginationActions">
+                      <Button
+                        variant="secondary"
+                        disabled={!transactions.hasPreviousPage || loading}
+                        onClick={() => void handleTransactionsPageChange(transactions.page - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={!transactions.hasNextPage || loading}
+                        onClick={() => void handleTransactionsPageChange(transactions.page + 1)}
+                      >
+                        Next
+                      </Button>
+                    </Box>
+                  </Box>
                 </Box>
               </Box>
             </Box>
@@ -921,152 +1389,6 @@ export const DashboardPage = () => {
                       </Box>
                     ))}
                   </Box>
-                </Box>
-              </Box>
-            </Box>
-          ) : null}
-
-          {section === "help" ? (
-            <Box className="appCard">
-              <SectionHeader
-                title="Help"
-                description="Reference payloads and routing expectations for the companion payments + compliance setup."
-              />
-              <Box className="helpGrid">
-                <Box className="helpItem helpCard">
-                  <Box className="helpIntro">
-                    <Text className="labelText">Expected compliance contract</Text>
-                    <Text as="p" color="default2" className="mutedText">
-                      Reference payload for compliance metadata and signed API mode.
-                    </Text>
-                  </Box>
-                  <pre className="monoBlock">
-                    {prettyJson({
-                      waiverAccepted: true,
-                      waiverAcceptedAt: "2026-04-02T13:00:00.000Z",
-                      waiverTextVersion: "pepclub-waiver-v1",
-                      complianceRecordId: "cmp_123",
-                      signatureMode: "CLICKWRAP",
-                      signatureCompleted: true,
-                    })}
-                  </pre>
-                  <Text as="p" color="default2" className="mutedText">
-                    Metadata mode also accepts the scalar `pepclubCompliance*` keys written by the
-                    companion compliance app. API mode additionally honors `isPaymentAllowed`,
-                    `reason`, and `nextAction`.
-                  </Text>
-                </Box>
-                <Box className="helpItem helpCard">
-                  <Box className="helpIntro">
-                    <Text className="labelText">Expected paymentGateway.data</Text>
-                    <Text as="p" color="default2" className="mutedText">
-                      Base request shape for provider selection, buyer details, and compliance data.
-                    </Text>
-                  </Box>
-                  <pre className="monoBlock">
-                    {prettyJson({
-                      provider: "rampnetwork",
-                      walletAddress: "0x1234...abcd",
-                      email: "guest@example.com",
-                      asset: "ETH",
-                      displayCurrency: "USD",
-                      providerCurrency: "USD",
-                      displayAmountUsd: 82.4,
-                      providerAmount: 82.4,
-                      fxRate: 0.02943,
-                      fxProvider: "frankfurter",
-                      fxTimestamp: "2026-04-07T00:00:00.000Z",
-                      fiatCurrency: "USD",
-                      fiatValue: "82.40",
-                      compliance: {
-                        waiverAccepted: true,
-                        waiverAcceptedAt: "2026-04-02T13:00:00.000Z",
-                        waiverTextVersion: "pepclub-waiver-v1",
-                        complianceRecordId: "cmp_123",
-                        signatureMode: "CLICKWRAP",
-                      },
-                    })}
-                  </pre>
-                </Box>
-                <Box className="helpItem helpCard">
-                  <Box className="helpIntro">
-                    <Text className="labelText">MoonPay payload</Text>
-                    <Text as="p" color="default2" className="mutedText">
-                      Example request when the checkout explicitly targets MoonPay.
-                    </Text>
-                  </Box>
-                  <pre className="monoBlock">
-                    {prettyJson({
-                      provider: "moonpay",
-                      baseCurrency: "usd",
-                      quoteCurrency: "btc",
-                      displayCurrency: "USD",
-                      providerCurrency: "USD",
-                      displayAmountUsd: 82.4,
-                      providerAmount: 82.4,
-                      fxRate: 0.02943,
-                      fxProvider: "frankfurter",
-                      fxTimestamp: "2026-04-07T00:00:00.000Z",
-                      walletAddress: "bc1qexample",
-                      compliance: {
-                        waiverAccepted: true,
-                        waiverAcceptedAt: "2026-04-02T13:00:00.000Z",
-                        waiverTextVersion: "pepclub-waiver-v1",
-                        complianceRecordId: "cmp_123",
-                        signatureMode: "CLICKWRAP",
-                      },
-                    })}
-                  </pre>
-                </Box>
-                <Box className="helpItem helpCard">
-                  <Box className="helpIntro">
-                    <Text className="labelText">Provider selection rules</Text>
-                    <Text as="p" color="default2" className="mutedText">
-                      Operational rules that decide provider routing and compliance validation.
-                    </Text>
-                  </Box>
-                  <Box className="helpPoints">
-                    <Text as="p" color="default2" className="mutedText">
-                      Explicit provider in `paymentGateway.data` wins. Otherwise the app uses the
-                      installation fallback provider from settings.
-                    </Text>
-                    <Text as="p" color="default2" className="mutedText">
-                      When compliance API mode is enabled, this app calls
-                      `/api/internal/compliance/status` on the compliance service using
-                      `x-pepclub-shared-secret`.
-                    </Text>
-                  </Box>
-                </Box>
-                <Box className="helpItem helpCard">
-                  <Box className="helpIntro">
-                    <Text className="labelText">Hosted flow response</Text>
-                    <Text as="p" color="default2" className="mutedText">
-                      Typical action-required response returned back to Saleor checkout.
-                    </Text>
-                  </Box>
-                  <pre className="monoBlock">
-                    {prettyJson({
-                      result: "CHARGE_ACTION_REQUIRED",
-                      data: {
-                        provider: "rampnetwork",
-                        redirectUrl: "https://app.demo.rampnetwork.com/?...",
-                        providerStatus: "INITIALIZED",
-                        providerCurrency: "USD",
-                        providerAmount: 82.4,
-                        fxQuote: {
-                          sourceAmount: 2800,
-                          sourceCurrency: "THB",
-                          displayCurrency: "USD",
-                          displayAmountUsd: 82.4,
-                          providerCurrency: "USD",
-                          providerAmount: 82.4,
-                          fxRate: 0.02943,
-                          fxProvider: "frankfurter",
-                          fxTimestamp: "2026-04-07T00:00:00.000Z",
-                        },
-                      },
-                    })}
-                  </pre>
                 </Box>
               </Box>
             </Box>
