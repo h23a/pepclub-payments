@@ -65,7 +65,7 @@ const defaultCountryRestrictions = {
   version: 1 as const,
   mode: "allow_list" as const,
   countries: ["TH"],
-  addressSource: "shipping_then_billing" as const,
+  addressSource: "shipping_only" as const,
 };
 
 const payload = {
@@ -253,7 +253,39 @@ describe("payment service", () => {
         baseUrl: "http://localhost:3000",
       })
     ).rejects.toMatchObject({
-      safeMessage: "Payments are currently available only for addresses in: TH.",
+      safeMessage: "Payments are currently available only for shipping addresses in: TH.",
+    });
+
+    expect(providerMock.initializeSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects payment initialization when only billing is present", async () => {
+    const { initializePaymentSession } = await importService();
+
+    await expect(
+      initializePaymentSession({
+        payload: {
+          ...payload,
+          sourceObject: {
+            ...payload.sourceObject,
+            shippingAddress: null,
+            billingAddress: {
+              country: {
+                code: "TH",
+                country: "Thailand",
+              },
+            },
+          },
+        },
+        authData: {
+          saleorApiUrl: "https://example.saleor.cloud/graphql/",
+          token: "token",
+          appId: "app_1",
+        },
+        baseUrl: "http://localhost:3000",
+      })
+    ).rejects.toMatchObject({
+      safeMessage: "A shipping address is required before payment can start.",
     });
 
     expect(providerMock.initializeSession).not.toHaveBeenCalled();
@@ -280,7 +312,7 @@ describe("payment service", () => {
         baseUrl: "http://localhost:3000",
       })
     ).rejects.toMatchObject({
-      safeMessage: "A shipping or billing address is required before payment can start.",
+      safeMessage: "A shipping address is required before payment can start.",
     });
 
     expect(providerMock.initializeSession).not.toHaveBeenCalled();
@@ -569,9 +601,21 @@ describe("payment service", () => {
     const typedResponse = response as {
       result: string;
       message?: string;
+      data?: {
+        errors?: Array<{
+          code: string;
+          message: string;
+        }>;
+      };
     };
 
     expect(typedResponse.result).toBe("CHARGE_FAILURE");
     expect(typedResponse.message).toBe("Complete the waiver first.");
+    expect(typedResponse.data?.errors).toEqual([
+      {
+        code: "COMPLIANCE_VALIDATION_ERROR",
+        message: "Complete the waiver first.",
+      },
+    ]);
   });
 });

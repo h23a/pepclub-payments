@@ -30,6 +30,10 @@ export default transactionInitializeSessionWebhook.createHandler(async (req, res
   } catch (error) {
     logger.warn("Transaction initialize session failed", {
       error: error instanceof Error ? error.message : String(error),
+      billingCountry: ctx.payload.sourceObject.billingAddress?.country.code ?? null,
+      shippingCountry: ctx.payload.sourceObject.shippingAddress?.country.code ?? null,
+      sourceObjectId: ctx.payload.sourceObject.id,
+      sourceObjectType: ctx.payload.sourceObject.__typename,
       transactionId: ctx.payload.transaction.id,
     });
 

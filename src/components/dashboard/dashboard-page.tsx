@@ -24,7 +24,7 @@ type OverviewResponse = {
       version: 1;
       mode: "allow_all" | "allow_list" | "block_list";
       countries: string[];
-      addressSource: "shipping_then_billing";
+      addressSource: "shipping_only";
     };
   };
   providers: Array<{

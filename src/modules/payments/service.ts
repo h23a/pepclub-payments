@@ -50,6 +50,12 @@ const makeSessionId = () => crypto.randomUUID();
 const makeEventId = () => crypto.randomUUID();
 const hostedProviderKeys = new Set<PaymentProviderKey>(["nowpayments", "moonpay", "rampnetwork"]);
 
+type SyncWebhookError = {
+  code: string;
+  message: string;
+  field?: string;
+};
+
 const safeErrorSummary = (error: unknown) => {
   if (error instanceof AppError) {
     return error.safeMessage;
@@ -60,6 +66,39 @@ const safeErrorSummary = (error: unknown) => {
   }
 
   return "Unknown payment error";
+};
+
+const safeErrorCode = (error: unknown) => {
+  if (error instanceof AppError) {
+    return error.code;
+  }
+
+  return "PAYMENT_ERROR";
+};
+
+const safeErrorField = (error: unknown) => {
+  if (!(error instanceof AppError)) {
+    return undefined;
+  }
+
+  const field = error.details?.field;
+  return typeof field === "string" ? field : undefined;
+};
+
+const buildFailureSyncResponseData = (error: unknown) => {
+  const syncError: SyncWebhookError = {
+    code: safeErrorCode(error),
+    message: safeErrorSummary(error),
+  };
+  const field = safeErrorField(error);
+
+  if (field) {
+    syncError.field = field;
+  }
+
+  return {
+    errors: [syncError],
+  };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -206,13 +245,17 @@ export const initializePaymentSession = async (input: {
 }) => {
   const gatewayData = getPaymentGatewayData(input.payload);
   const settings = await resolveSettingsForTenant(input.authData.saleorApiUrl);
-  const countryCode = resolveSourceObjectCountryCode(input.payload.sourceObject);
+  const countryCode = resolveSourceObjectCountryCode(
+    input.payload.sourceObject,
+    settings.countryRestrictions.addressSource
+  );
 
   if (!countryCode) {
     throw new ValidationError(
-      "Payment initialization requires a shipping or billing country code.",
-      "A shipping or billing address is required before payment can start.",
+      "Payment initialization requires a shipping country code.",
+      "A shipping address is required before payment can start.",
       {
+        field: "shippingAddress",
         saleorApiUrl: input.authData.saleorApiUrl,
         sourceObjectId: input.payload.sourceObject.id,
         sourceObjectType: input.payload.sourceObject.__typename,
@@ -223,8 +266,8 @@ export const initializePaymentSession = async (input: {
   if (!isCountryAllowedByRestrictions(settings.countryRestrictions, countryCode)) {
     const restrictionSummary =
       settings.countryRestrictions.mode === "allow_list"
-        ? `Payments are currently available only for addresses in: ${settings.countryRestrictions.countries.join(", ")}.`
-        : "This address is not eligible for payment under the current country restrictions.";
+        ? `Payments are currently available only for shipping addresses in: ${settings.countryRestrictions.countries.join(", ")}.`
+        : "This shipping address is not eligible for payment under the current country restrictions.";
 
     throw new ValidationError(
       `Payment initialization blocked for country ${countryCode}.`,
@@ -232,6 +275,7 @@ export const initializePaymentSession = async (input: {
       {
         configuredCountries: settings.countryRestrictions.countries,
         countryCode,
+        field: "shippingAddress.country",
         restrictionMode: settings.countryRestrictions.mode,
         saleorApiUrl: input.authData.saleorApiUrl,
       }
@@ -663,4 +707,5 @@ export const createFailureSyncResponse = (error: unknown, actionType: "CHARGE" |
     amount,
     actionType,
     message: safeErrorSummary(error),
+    data: buildFailureSyncResponseData(error),
   });

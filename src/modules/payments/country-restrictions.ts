@@ -16,7 +16,7 @@ export const defaultPaymentCountryRestrictions: PaymentCountryRestrictionConfig 
   version: 1,
   mode: "allow_list",
   countries: ["TH"],
-  addressSource: "shipping_then_billing",
+  addressSource: "shipping_only",
 };
 
 export const normalizeCountryCode = (value: string) => value.trim().toUpperCase();
@@ -40,19 +40,22 @@ export const normalizePaymentCountryRestrictions = (
     version: 1,
     mode,
     countries: normalizeCountryCodes(value?.countries ?? defaultPaymentCountryRestrictions.countries),
-    addressSource: "shipping_then_billing",
+    addressSource: "shipping_only",
   };
 };
 
-export const resolveSourceObjectCountryCode = (sourceObject: SaleorSourceObject) => {
+export const resolveSourceObjectCountryCode = (
+  sourceObject: SaleorSourceObject,
+  addressSource: PaymentCountryRestrictionConfig["addressSource"] = defaultPaymentCountryRestrictions.addressSource
+) => {
   const shippingCountry = sourceObject.shippingAddress?.country.code;
-  if (shippingCountry) {
-    return normalizeCountryCode(shippingCountry);
-  }
 
-  const billingCountry = sourceObject.billingAddress?.country.code;
-  if (billingCountry) {
-    return normalizeCountryCode(billingCountry);
+  if (addressSource === "shipping_only") {
+    if (!shippingCountry) {
+      return null;
+    }
+
+    return normalizeCountryCode(shippingCountry);
   }
 
   return null;

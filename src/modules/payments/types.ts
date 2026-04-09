@@ -2,7 +2,7 @@ export type PaymentProviderKey = "nowpayments" | "moonpay" | "rampnetwork";
 
 export type PaymentCountryRestrictionMode = "allow_all" | "allow_list" | "block_list";
 
-export type PaymentCountryRestrictionAddressSource = "shipping_then_billing";
+export type PaymentCountryRestrictionAddressSource = "shipping_only";
 
 export type PaymentCountryRestrictionConfig = {
   version: 1;

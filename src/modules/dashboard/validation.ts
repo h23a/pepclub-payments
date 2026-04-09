@@ -78,7 +78,7 @@ const countryRestrictionsSchema: z.ZodType<PaymentCountryRestrictionConfig> = z.
     .array(z.string())
     .default([])
     .transform((countries) => normalizeCountryCodes(countries)),
-  addressSource: z.literal("shipping_then_billing").optional().default("shipping_then_billing"),
+  addressSource: z.literal("shipping_only").optional().default("shipping_only"),
 });
 
 const dashboardSettingsBodySchema: z.ZodType<PaymentAppSettingsInput> = z.object({

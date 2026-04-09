@@ -61,7 +61,7 @@ const defaultCountryRestrictions = {
   version: 1 as const,
   mode: "allow_list" as const,
   countries: ["TH"],
-  addressSource: "shipping_then_billing" as const,
+  addressSource: "shipping_only" as const,
 };
 
 const importDashboardService = async () => {

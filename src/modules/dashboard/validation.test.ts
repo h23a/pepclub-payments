@@ -31,7 +31,7 @@ describe("dashboard validation", () => {
         version: 1,
         mode: "allow_list",
         countries: ["TH", "SG"],
-        addressSource: "shipping_then_billing",
+        addressSource: "shipping_only",
       },
     });
   });

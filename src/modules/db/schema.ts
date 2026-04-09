@@ -38,9 +38,7 @@ export const appSettings = pgTable(
     countryRestrictions: jsonb("country_restrictions")
       .$type<PaymentCountryRestrictionConfig>()
       .notNull()
-      .default(
-        sql`'{"version":1,"mode":"allow_list","countries":["TH"],"addressSource":"shipping_then_billing"}'::jsonb`
-      ),
+      .default(sql`'{"version":1,"mode":"allow_list","countries":["TH"],"addressSource":"shipping_only"}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
