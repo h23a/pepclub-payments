@@ -238,6 +238,40 @@ pre {
   color: var(--app-warning) !important;
 }
 
+.statusChip.isCritical {
+  border-color: var(--app-critical-border) !important;
+  background: #fef3f2 !important;
+  color: var(--app-critical) !important;
+}
+
+.statusChip.isInfo {
+  border-color: #bfdbfe !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+.providerChip {
+  text-transform: capitalize;
+}
+
+.providerChip.isMoonpay {
+  border-color: #fbcfe8 !important;
+  background: #fdf2f8 !important;
+  color: #be185d !important;
+}
+
+.providerChip.isRampnetwork {
+  border-color: #ddd6fe !important;
+  background: #f5f3ff !important;
+  color: #6d28d9 !important;
+}
+
+.providerChip.isNowpayments {
+  border-color: #bbf7d0 !important;
+  background: #f0fdf4 !important;
+  color: #15803d !important;
+}
+
 .sectionButton {
   border-radius: var(--app-radius-sm) !important;
   border: 1px solid var(--app-border) !important;
@@ -443,7 +477,9 @@ pre {
   border-radius: var(--app-radius-md);
   border: 1px solid var(--app-border);
   background: var(--app-surface-alt);
-  transition: border-color 160ms ease, background 160ms ease;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
 }
 
 .toggleRow.isActive {
@@ -607,6 +643,50 @@ pre {
   transition: background 0.15s ease;
 }
 
+.transactionIdentityCell {
+  gap: 6px;
+}
+
+.transactionEyebrow {
+  font-size: var(--mu-font-size-1);
+  font-weight: var(--mu-font-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.transactionPrimaryId {
+  overflow-wrap: anywhere;
+}
+
+.transactionMetaRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inlineMetaBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: var(--mu-font-size-1);
+  font-weight: var(--mu-font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.inlineMetaCode {
+  background: #f8fafc;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: var(--mu-font-size-2);
+  overflow-wrap: anywhere;
+}
+
 .dashboardTableRow:hover .dashboardTableCell,
 .dashboardTableBody.isExpanded .dashboardTableCell {
   background: var(--app-surface);
@@ -622,6 +702,46 @@ pre {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.iconActionButton {
+  min-width: 36px !important;
+  width: 36px;
+  height: 36px;
+  padding: 0 !important;
+}
+
+.buttonIconSvg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.referenceCell {
+  gap: 2px;
+}
+
+.referenceLabel {
+  font-size: var(--mu-font-size-1);
+  font-weight: var(--mu-font-weight-medium);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.referenceValue {
+  overflow-wrap: anywhere;
+}
+
+.referenceMetaText {
+  max-width: 28ch;
+}
+
+.updatedCell {
+  gap: 2px;
+}
+
+.updatedPrimaryText {
+  font-weight: var(--mu-font-weight-medium);
 }
 
 .dashboardTableDetailRow td {

@@ -15,10 +15,15 @@ type SaleorAddress = {
   country: SaleorCountry;
 };
 
+type SaleorUser = {
+  id: string;
+};
+
 type CheckoutSourceObject = {
   __typename: "Checkout";
   id: string;
   email?: string | null;
+  user?: SaleorUser | null;
   channel: {
     slug: string;
   };
@@ -33,6 +38,7 @@ type OrderSourceObject = {
   id: string;
   checkoutId?: string | null;
   userEmail?: string | null;
+  user?: SaleorUser | null;
   channel: {
     slug: string;
   };
@@ -165,6 +171,7 @@ export const getSourceObjectIdentifiers = (sourceObject: SaleorSourceObject) => 
       checkoutId: sourceObject.id,
       orderId: null,
       customerEmail: sourceObject.email ?? null,
+      customerId: sourceObject.user?.id ?? null,
       channelSlug: sourceObject.channel.slug,
     };
   }
@@ -175,6 +182,7 @@ export const getSourceObjectIdentifiers = (sourceObject: SaleorSourceObject) => 
     checkoutId: sourceObject.checkoutId ?? null,
     orderId: sourceObject.id,
     customerEmail: sourceObject.userEmail ?? null,
+    customerId: sourceObject.user?.id ?? null,
     channelSlug: sourceObject.channel.slug,
   };
 };

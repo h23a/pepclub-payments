@@ -27,6 +27,9 @@ const checkoutSourceObject = {
   __typename: "Checkout" as const,
   id: "checkout_1",
   email: "guest@example.com",
+  user: {
+    id: "user_123",
+  },
   channel: {
     slug: "default-channel",
   },
@@ -169,6 +172,12 @@ describe("compliance validation", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://compliance.internal/api/internal/compliance/status",
       expect.objectContaining({
+        body: JSON.stringify({
+          checkoutId: "checkout_1",
+          customerId: "user_123",
+          customerEmail: "guest@example.com",
+          orderId: undefined,
+        }),
         method: "POST",
         headers: expect.objectContaining({
           "content-type": "application/json",

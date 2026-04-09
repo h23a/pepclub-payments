@@ -24,6 +24,9 @@ export const transactionInitializeSessionSubscription = /* GraphQL */ `
           ... on Checkout {
             id
             email
+            user {
+              id
+            }
             channel {
               slug
             }
@@ -52,6 +55,9 @@ export const transactionInitializeSessionSubscription = /* GraphQL */ `
             id
             checkoutId
             userEmail
+            user {
+              id
+            }
             channel {
               slug
             }
@@ -107,6 +113,9 @@ export const transactionProcessSessionSubscription = /* GraphQL */ `
           ... on Checkout {
             id
             email
+            user {
+              id
+            }
             channel {
               slug
             }
@@ -135,6 +144,9 @@ export const transactionProcessSessionSubscription = /* GraphQL */ `
             id
             checkoutId
             userEmail
+            user {
+              id
+            }
             channel {
               slug
             }

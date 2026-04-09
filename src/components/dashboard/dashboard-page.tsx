@@ -1,5 +1,15 @@
 import { actions, useAppBridge, useAuthenticatedFetch } from "@saleor/app-sdk/app-bridge";
-import { Box, Button, Checkbox, Chip, SearchInput, Text } from "@saleor/macaw-ui";
+import {
+  Box,
+  Button,
+  Checkbox,
+  ChervonDownIcon,
+  ChervonUpIcon,
+  Chip,
+  ExternalLinkIcon,
+  SearchInput,
+  Text,
+} from "@saleor/macaw-ui";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
@@ -152,6 +162,35 @@ const formatDate = (value?: string | null) => {
   }).format(new Date(value));
 };
 
+const formatRelativeTime = (value?: string | null) => {
+  if (!value) {
+    return "Never";
+  }
+
+  const target = new Date(value).getTime();
+  const now = Date.now();
+
+  if (Number.isNaN(target)) {
+    return "Unknown";
+  }
+
+  const diffInMinutes = Math.round((target - now) / (1000 * 60));
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+  if (Math.abs(diffInMinutes) < 60) {
+    return formatter.format(diffInMinutes, "minute");
+  }
+
+  const diffInHours = Math.round(diffInMinutes / 60);
+
+  if (Math.abs(diffInHours) < 24) {
+    return formatter.format(diffInHours, "hour");
+  }
+
+  const diffInDays = Math.round(diffInHours / 24);
+  return formatter.format(diffInDays, "day");
+};
+
 const formatPercent = (value?: number | null) => {
   if (value === null || value === undefined) {
     return "N/A";
@@ -217,7 +256,7 @@ const getPresetDateRange = (range: "today" | "7d" | "month", now = new Date()) =
 const getRecapRangeLabel = (
   range: OverviewResponse["paymentRecap"]["range"],
   from?: string,
-  to?: string
+  to?: string,
 ) => {
   if (range === "today") {
     return "Today";
@@ -272,6 +311,29 @@ const getChipTone = (value: string) => {
   const normalized = value.toLowerCase();
 
   if (
+    normalized.includes("failed") ||
+    normalized.includes("reject") ||
+    normalized.includes("error") ||
+    normalized.includes("expired") ||
+    normalized.includes("cancel") ||
+    normalized.includes("refund")
+  ) {
+    return "isCritical";
+  }
+
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("processing") ||
+    normalized.includes("waiting") ||
+    normalized.includes("confirm") ||
+    normalized.includes("review") ||
+    normalized.includes("action_required") ||
+    normalized.includes("action required")
+  ) {
+    return "isInfo";
+  }
+
+  if (
     normalized.includes("issue") ||
     normalized.includes("warn") ||
     normalized.includes("missing") ||
@@ -301,6 +363,107 @@ const StatusChip = ({ children }: { children: string }) => (
   <Chip className={classNames("statusChip", getChipTone(children))}>{children}</Chip>
 );
 
+const getProviderBadgeTone = (provider: string) => {
+  const normalized = provider.toLowerCase();
+
+  if (normalized === "moonpay") {
+    return "isMoonpay";
+  }
+
+  if (normalized === "rampnetwork") {
+    return "isRampnetwork";
+  }
+
+  if (normalized === "nowpayments") {
+    return "isNowpayments";
+  }
+
+  return "";
+};
+
+const formatProviderLabel = (provider: string) => {
+  const normalized = provider.toLowerCase();
+
+  if (normalized === "moonpay") {
+    return "MoonPay";
+  }
+
+  if (normalized === "rampnetwork") {
+    return "Ramp Network";
+  }
+
+  if (normalized === "nowpayments") {
+    return "NOWPayments";
+  }
+
+  return provider;
+};
+
+const ProviderChip = ({ provider }: { provider: string }) => (
+  <Chip className={classNames("statusChip", "providerChip", getProviderBadgeTone(provider))}>
+    {formatProviderLabel(provider)}
+  </Chip>
+);
+
+const SyncIcon = () => (
+  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="buttonIconSvg">
+    <path
+      d="M15.833 8.333A6.667 6.667 0 0 0 4.38 5.254M4.167 11.667a6.667 6.667 0 0 0 11.453 3.08"
+      stroke="currentColor"
+      strokeWidth="1.67"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M15.833 3.333v5H10.833M9.167 11.667h-5v5"
+      stroke="currentColor"
+      strokeWidth="1.67"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const getProviderReferenceMeta = (session: TransactionLookupItem["session"]) => {
+  if (session.providerReferenceId) {
+    return {
+      label: "Reference ID",
+      value: session.providerReferenceId,
+    };
+  }
+
+  if (session.providerPaymentId) {
+    return {
+      label: "Payment ID",
+      value: session.providerPaymentId,
+    };
+  }
+
+  if (session.providerInvoiceId) {
+    return {
+      label: "Invoice ID",
+      value: session.providerInvoiceId,
+    };
+  }
+
+  return {
+    label: "Reference",
+    value: "Not assigned yet",
+  };
+};
+
+const shortenIdentifier = (value: string, maxLength = 24) => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  const edgeLength = Math.max(6, Math.floor((maxLength - 1) / 2));
+  return `${value.slice(0, edgeLength)}…${value.slice(-edgeLength)}`;
+};
+
+const transactionIdPreviewLength = 22;
+const sessionIdPreviewLength = 18;
+
 const SectionHeader = ({ title, description }: { description?: string; title: string }) => (
   <Box className="titleBlock tight">
     <Text size={7} as="h2" className="headingText">
@@ -316,7 +479,7 @@ const SectionHeader = ({ title, description }: { description?: string; title: st
 
 const sortProviders = <T extends { provider: (typeof providerOrder)[number] }>(providers: T[]) =>
   [...providers].sort(
-    (left, right) => providerOrder.indexOf(left.provider) - providerOrder.indexOf(right.provider)
+    (left, right) => providerOrder.indexOf(left.provider) - providerOrder.indexOf(right.provider),
   );
 
 export const DashboardPage = () => {
@@ -328,7 +491,8 @@ export const DashboardPage = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
-  const [transactions, setTransactions] = useState<TransactionLookupResponse>(emptyTransactionsResponse);
+  const [transactions, setTransactions] =
+    useState<TransactionLookupResponse>(emptyTransactionsResponse);
   const [search, setSearch] = useState("");
   const [appliedTransactionSearch, setAppliedTransactionSearch] = useState("");
   const [transactionPage, setTransactionPage] = useState(1);
@@ -351,14 +515,14 @@ export const DashboardPage = () => {
     },
   });
   const [countryRestrictionsInput, setCountryRestrictionsInput] = useState(() =>
-    stringifyCountryCodes(defaultPaymentCountryRestrictions.countries)
+    stringifyCountryCodes(defaultPaymentCountryRestrictions.countries),
   );
   const [savingSettings, setSavingSettings] = useState(false);
   const [reconcilingTransactionId, setReconcilingTransactionId] = useState<string | null>(null);
   const [expandedTransactionId, setExpandedTransactionId] = useState<string | null>(null);
 
   const isEmbedded = Boolean(
-    appBridgeState?.ready && appBridgeState.saleorApiUrl && appBridgeState.token
+    appBridgeState?.ready && appBridgeState.saleorApiUrl && appBridgeState.token,
   );
 
   const fetchAppApi = async <T,>(
@@ -366,14 +530,18 @@ export const DashboardPage = () => {
     init?: {
       method?: "GET" | "POST";
       body?: Record<string, unknown>;
-    }
+    },
   ) => {
     const response = await authenticatedFetch(path, {
       method: init?.method ?? "GET",
       headers: init?.body ? { "content-type": "application/json" } : undefined,
       body: init?.body ? JSON.stringify(init.body) : undefined,
     });
-    const payload = (await response.json()) as T & { code?: string; error?: string; message?: string };
+    const payload = (await response.json()) as T & {
+      code?: string;
+      error?: string;
+      message?: string;
+    };
 
     if (!response.ok) {
       throw new Error(payload.error ?? payload.message ?? "Request failed.");
@@ -392,7 +560,7 @@ export const DashboardPage = () => {
         actions.Redirect({
           to: url,
           newContext: true,
-        })
+        }),
       );
       return;
     }
@@ -427,7 +595,10 @@ export const DashboardPage = () => {
     return `/api/dashboard/transactions?${params.toString()}`;
   };
 
-  const loadDashboard = async (options?: { transactionSearch?: string; transactionPage?: number }) => {
+  const loadDashboard = async (options?: {
+    transactionSearch?: string;
+    transactionPage?: number;
+  }) => {
     if (!isEmbedded) {
       setLoading(false);
       return;
@@ -440,7 +611,7 @@ export const DashboardPage = () => {
       const overviewPath = buildOverviewPath();
       const transactionsPath = buildTransactionsPath(
         options?.transactionSearch ?? appliedTransactionSearch,
-        options?.transactionPage ?? transactionPage
+        options?.transactionPage ?? transactionPage,
       );
       const [overviewResponse, diagnosticsResponse, transactionsResponse] = await Promise.all([
         fetchAppApi<OverviewResponse>(overviewPath),
@@ -460,7 +631,7 @@ export const DashboardPage = () => {
         countryRestrictions: overviewResponse.settings.countryRestrictions,
       });
       setCountryRestrictionsInput(
-        stringifyCountryCodes(overviewResponse.settings.countryRestrictions.countries)
+        stringifyCountryCodes(overviewResponse.settings.countryRestrictions.countries),
       );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load app data.");
@@ -483,12 +654,12 @@ export const DashboardPage = () => {
 
   const providerStatusByKey = useMemo(
     () => new Map(overview?.providers.map((provider) => [provider.provider, provider]) ?? []),
-    [overview?.providers]
+    [overview?.providers],
   );
 
   const orderedProviders = useMemo(
     () => sortProviders(overview?.providers ?? []),
-    [overview?.providers]
+    [overview?.providers],
   );
 
   const orderedDiagnosticsProviders = useMemo(
@@ -496,13 +667,13 @@ export const DashboardPage = () => {
       sortProviders(
         (diagnostics?.providerConfig ?? []).filter(
           (
-            provider
+            provider,
           ): provider is DiagnosticsResponse["providerConfig"][number] & {
             provider: (typeof providerOrder)[number];
-          } => providerOrder.includes(provider.provider as (typeof providerOrder)[number])
-        )
+          } => providerOrder.includes(provider.provider as (typeof providerOrder)[number]),
+        ),
       ),
-    [diagnostics?.providerConfig]
+    [diagnostics?.providerConfig],
   );
 
   const enabledProviders = useMemo(
@@ -511,7 +682,7 @@ export const DashboardPage = () => {
         .filter((provider) => provider.enabled)
         .map((provider) => provider.provider)
         .join(", ") || "None",
-    [orderedProviders]
+    [orderedProviders],
   );
 
   const summaryCards = useMemo(
@@ -533,19 +704,19 @@ export const DashboardPage = () => {
         value: String(overview?.paymentRecap.webhookCount ?? 0),
       },
     ],
-    [overview]
+    [overview],
   );
   const activeRecapRangeLabel = getRecapRangeLabel(
     overview?.paymentRecap.range ?? appliedRecapFilter.range,
     overview?.paymentRecap.from,
-    overview?.paymentRecap.to
+    overview?.paymentRecap.to,
   );
   const transactionsRangeLabel =
     transactions.totalCount === 0
       ? "Showing 0 results"
       : `Showing ${(transactions.page - 1) * transactions.pageSize + 1}-${Math.min(
           transactions.page * transactions.pageSize,
-          transactions.totalCount
+          transactions.totalCount,
         )} of ${transactions.totalCount}`;
   const isCustomDraftRangeValid =
     Boolean(draftRecapFilter.from) &&
@@ -661,7 +832,7 @@ export const DashboardPage = () => {
       });
     } catch (reconcileError) {
       setError(
-        reconcileError instanceof Error ? reconcileError.message : "Could not sync from provider."
+        reconcileError instanceof Error ? reconcileError.message : "Could not sync from provider.",
       );
     } finally {
       setReconcilingTransactionId(null);
@@ -739,7 +910,7 @@ export const DashboardPage = () => {
                       variant="secondary"
                       className={classNames(
                         "sectionButton",
-                        overview.paymentRecap.range === item.id && "isActive"
+                        overview.paymentRecap.range === item.id && "isActive",
                       )}
                       onClick={() => handleShortcutRecapRange(item.id)}
                     >
@@ -797,10 +968,7 @@ export const DashboardPage = () => {
                       <Text as="p" color="default2" className="mutedText">
                         {item.label}
                       </Text>
-                      <Text
-                        size={8}
-                        className="summaryValue"
-                      >
+                      <Text size={8} className="summaryValue">
                         {item.value}
                       </Text>
                     </Box>
@@ -906,7 +1074,9 @@ export const DashboardPage = () => {
                     </div>
                     <div>
                       <dt>Latest provider status</dt>
-                      <dd>{overview.paymentRecap.latestWebhook?.providerStatus ?? "None in range"}</dd>
+                      <dd>
+                        {overview.paymentRecap.latestWebhook?.providerStatus ?? "None in range"}
+                      </dd>
                     </div>
                     <div>
                       <dt>Latest payment issue</dt>
@@ -946,8 +1116,8 @@ export const DashboardPage = () => {
                         Ramp Network
                       </Checkbox>
                       <span className="toggleText">
-                        {providerStatusByKey.get("rampnetwork")?.environment ?? "unknown"} · API key:{" "}
-                        {overview.secrets.rampnetworkApiKey} · webhook key:{" "}
+                        {providerStatusByKey.get("rampnetwork")?.environment ?? "unknown"} · API
+                        key: {overview.secrets.rampnetworkApiKey} · webhook key:{" "}
                         {overview.secrets.rampnetworkWebhookSecret}
                       </span>
                     </Box>
@@ -1151,39 +1321,66 @@ export const DashboardPage = () => {
                         </thead>
                         {transactions.items.map((entry) => {
                           const isExpanded = expandedTransactionId === entry.session.id;
-                          const providerReference =
-                            entry.session.providerReferenceId ??
-                            entry.session.providerPaymentId ??
-                            entry.session.providerInvoiceId ??
-                            "Not assigned yet";
+                          const providerReference = getProviderReferenceMeta(entry.session);
 
                           return (
                             <tbody
                               key={entry.session.id}
-                              className={classNames("dashboardTableBody", isExpanded && "isExpanded")}
+                              className={classNames(
+                                "dashboardTableBody",
+                                isExpanded && "isExpanded",
+                              )}
                             >
                               <tr className="dashboardTableRow">
                                 <td className="dashboardTableCell">
-                                  <Box className="textStack">
-                                    <Text className="labelText">
-                                      {entry.session.saleorTransactionId}
+                                  <Box className="textStack transactionIdentityCell">
+                                    <Text as="p" color="default2" className="transactionEyebrow">
+                                      Saleor transaction
                                     </Text>
-                                    <Text as="p" color="default2" className="mutedText">
-                                      Session <code>{entry.session.id}</code>
+                                    <Text
+                                      className="labelText transactionPrimaryId"
+                                      title={entry.session.saleorTransactionId}
+                                    >
+                                      {shortenIdentifier(
+                                        entry.session.saleorTransactionId,
+                                        transactionIdPreviewLength,
+                                      )}
                                     </Text>
+                                    <Box className="transactionMetaRow">
+                                      <span className="inlineMetaBadge">Session</span>
+                                      <code className="inlineMetaCode" title={entry.session.id}>
+                                        {shortenIdentifier(
+                                          entry.session.id,
+                                          sessionIdPreviewLength,
+                                        )}
+                                      </code>
+                                    </Box>
                                   </Box>
                                 </td>
                                 <td className="dashboardTableCell">
                                   <Text as="p" className="bodyText">
-                                    {entry.session.provider}
+                                    <ProviderChip provider={entry.session.provider} />
                                   </Text>
                                 </td>
                                 <td className="dashboardTableCell">
-                                  <Box className="textStack">
-                                    <Text as="p" className="bodyText">
-                                      {providerReference}
+                                  <Box className="textStack referenceCell">
+                                    <Text as="p" color="default2" className="referenceLabel">
+                                      {providerReference.label}
                                     </Text>
-                                    <Text as="p" color="default2" className="mutedText">
+                                    <Text
+                                      as="p"
+                                      className="bodyText referenceValue"
+                                      title={providerReference.value}
+                                    >
+                                      {providerReference.value === "Not assigned yet"
+                                        ? providerReference.value
+                                        : shortenIdentifier(providerReference.value)}
+                                    </Text>
+                                    <Text
+                                      as="p"
+                                      color="default2"
+                                      className="mutedText referenceMetaText"
+                                    >
                                       {entry.session.safeErrorSummary ?? "No safe error"}
                                     </Text>
                                   </Box>
@@ -1195,52 +1392,82 @@ export const DashboardPage = () => {
                                   <StatusChip>{entry.session.providerStatus}</StatusChip>
                                 </td>
                                 <td className="dashboardTableCell">
-                                  <Text as="p" className="bodyText">
-                                    {formatDate(entry.session.updatedAt)}
-                                  </Text>
+                                  <Box className="textStack updatedCell">
+                                    <Text as="p" className="bodyText updatedPrimaryText">
+                                      {formatRelativeTime(entry.session.updatedAt)}
+                                    </Text>
+                                    <Text as="p" color="default2" className="mutedText">
+                                      {formatDate(entry.session.updatedAt)}
+                                    </Text>
+                                  </Box>
                                 </td>
                                 <td className="dashboardTableCell dashboardTableActionsCell">
                                   <Box className="dashboardTableActions">
                                     <Button
                                       type="button"
                                       variant="secondary"
-                                      aria-expanded={isExpanded}
-                                      onClick={() =>
-                                        setExpandedTransactionId((current) =>
-                                          current === entry.session.id ? null : entry.session.id
+                                      className="iconActionButton"
+                                      icon={
+                                        isExpanded ? (
+                                          <ChervonUpIcon size="small" />
+                                        ) : (
+                                          <ChervonDownIcon size="small" />
                                         )
                                       }
-                                    >
-                                      {isExpanded ? "Hide details" : "Details"}
-                                    </Button>
+                                      aria-expanded={isExpanded}
+                                      aria-label={
+                                        isExpanded
+                                          ? "Hide transaction details"
+                                          : "Show transaction details"
+                                      }
+                                      title={isExpanded ? "Hide details" : "Show details"}
+                                      onClick={() =>
+                                        setExpandedTransactionId((current) =>
+                                          current === entry.session.id ? null : entry.session.id,
+                                        )
+                                      }
+                                    />
                                     <Button
                                       type="button"
                                       variant="secondary"
-                                      title="Fetch the latest status from the payment provider and update Saleor for this transaction."
-                                      disabled={
-                                        reconcilingTransactionId === entry.session.saleorTransactionId
+                                      className="iconActionButton"
+                                      icon={<SyncIcon />}
+                                      title={
+                                        reconcilingTransactionId ===
+                                        entry.session.saleorTransactionId
+                                          ? "Syncing from provider"
+                                          : "Fetch the latest status from the payment provider and update Saleor for this transaction."
                                       }
-                                      onClick={() => handleReconcile(entry.session.saleorTransactionId)}
-                                    >
-                                      {reconcilingTransactionId === entry.session.saleorTransactionId
-                                        ? "Syncing..."
-                                        : "Sync from provider"}
-                                    </Button>
+                                      aria-label={
+                                        reconcilingTransactionId ===
+                                        entry.session.saleorTransactionId
+                                          ? "Syncing from provider"
+                                          : "Sync from provider"
+                                      }
+                                      disabled={
+                                        reconcilingTransactionId ===
+                                        entry.session.saleorTransactionId
+                                      }
+                                      onClick={() =>
+                                        handleReconcile(entry.session.saleorTransactionId)
+                                      }
+                                    />
                                     {entry.session.redirectUrl || entry.session.hostedUrl ? (
                                       <Button
                                         type="button"
                                         variant="secondary"
+                                        className="iconActionButton"
+                                        icon={<ExternalLinkIcon size="small" />}
                                         title="Opens the provider-hosted payment page (checkout or return URL) in a new tab."
+                                        aria-label="Open payment page"
                                         onClick={() =>
                                           openExternal(
                                             entry.session.redirectUrl ??
                                               entry.session.hostedUrl ??
-                                              ""
+                                              "",
                                           )
                                         }
-                                      >
-                                        Open payment page
-                                      </Button>
+                                      />
                                     ) : null}
                                   </Box>
                                 </td>
@@ -1251,8 +1478,16 @@ export const DashboardPage = () => {
                                     <Box className="transactionCard">
                                       <dl className="definitionList compact">
                                         <div>
+                                          <dt>Saleor transaction ID</dt>
+                                          <dd>{entry.session.saleorTransactionId}</dd>
+                                        </div>
+                                        <div>
+                                          <dt>Session ID</dt>
+                                          <dd>{entry.session.id}</dd>
+                                        </div>
+                                        <div>
                                           <dt>Provider reference</dt>
-                                          <dd>{providerReference}</dd>
+                                          <dd>{providerReference.value}</dd>
                                         </div>
                                         <div>
                                           <dt>Safe error summary</dt>
@@ -1260,11 +1495,37 @@ export const DashboardPage = () => {
                                         </div>
                                         <div>
                                           <dt>Hosted URL</dt>
-                                          <dd>{entry.session.hostedUrl ?? "Not available"}</dd>
+                                          <dd>
+                                            {entry.session.hostedUrl ? (
+                                              <a
+                                                href={entry.session.hostedUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="docReferenceLink"
+                                              >
+                                                {entry.session.hostedUrl}
+                                              </a>
+                                            ) : (
+                                              "Not available"
+                                            )}
+                                          </dd>
                                         </div>
                                         <div>
                                           <dt>Redirect URL</dt>
-                                          <dd>{entry.session.redirectUrl ?? "Not available"}</dd>
+                                          <dd>
+                                            {entry.session.redirectUrl ? (
+                                              <a
+                                                href={entry.session.redirectUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="docReferenceLink"
+                                              >
+                                                {entry.session.redirectUrl}
+                                              </a>
+                                            ) : (
+                                              "Not available"
+                                            )}
+                                          </dd>
                                         </div>
                                       </dl>
 
@@ -1351,7 +1612,7 @@ export const DashboardPage = () => {
                       <dd>
                         {diagnostics?.database.ok
                           ? "Connected"
-                          : diagnostics?.database.error ?? "Unknown"}
+                          : (diagnostics?.database.error ?? "Unknown")}
                       </dd>
                     </div>
                     <div>

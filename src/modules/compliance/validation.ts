@@ -34,6 +34,7 @@ const fetchComplianceFromInternalApi = async (input: ResolveComplianceInput) => 
 
   const payload = JSON.stringify({
     checkoutId: input.sourceObject.__typename === "Checkout" ? input.sourceObject.id : input.sourceObject.checkoutId,
+    customerId: input.sourceObject.user?.id,
     orderId: input.sourceObject.__typename === "Order" ? input.sourceObject.id : undefined,
     customerEmail:
       input.sourceObject.__typename === "Checkout"
