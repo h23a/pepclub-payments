@@ -2,6 +2,8 @@ import { AuthData } from "@saleor/app-sdk/APL";
 import { buildSyncWebhookResponsePayload } from "@saleor/app-sdk/handlers/shared";
 import crypto from "crypto";
 
+import { TransactionInitializeSession } from "@/generated/app-webhooks-types/transaction-initialize-session";
+import { TransactionProcessSession } from "@/generated/app-webhooks-types/transaction-process-session";
 import {
   assertCompliancePreconditions,
   resolveComplianceContract,
@@ -55,6 +57,8 @@ type SyncWebhookError = {
   message: string;
   field?: string;
 };
+
+type TransactionSyncWebhookResponse = TransactionInitializeSession | TransactionProcessSession;
 
 const safeErrorSummary = (error: unknown) => {
   if (error instanceof AppError) {
@@ -139,7 +143,7 @@ const resolveHostedUsdQuote = async (input: {
   } catch {
     throw new ValidationError(
       `USD quote is unavailable for ${input.providerKey}.`,
-      "We couldn't retrieve the latest USD exchange rate. Please try again."
+      "We couldn't retrieve the latest USD exchange rate. Please try again.",
     );
   }
 };
@@ -157,7 +161,10 @@ const buildProviderAuditPayload = (input: {
     nextPayload.providerResponse = input.existingPayload;
   }
 
-  if (input.providerResult.providerAmount !== undefined && input.providerResult.providerAmount !== null) {
+  if (
+    input.providerResult.providerAmount !== undefined &&
+    input.providerResult.providerAmount !== null
+  ) {
     nextPayload.providerAmount = input.providerResult.providerAmount;
   }
 
@@ -175,19 +182,22 @@ const buildProviderAuditPayload = (input: {
 
   return Object.keys(nextPayload).length > 0
     ? nextPayload
-    : input.providerResult.rawResponse ?? input.existingPayload;
+    : (input.providerResult.rawResponse ?? input.existingPayload);
 };
 
 const buildProviderEventPayload = (
   providerResult: ProviderStatusResult,
-  requestedGatewayData?: PaymentGatewayData
+  requestedGatewayData?: PaymentGatewayData,
 ) =>
   buildProviderAuditPayload({
     providerResult,
     requestedGatewayData,
   });
 
-const buildSyncResponseData = (providerKey: PaymentProviderKey, providerResult: ProviderStatusResult) => {
+const buildSyncResponseData = (
+  providerKey: PaymentProviderKey,
+  providerResult: ProviderStatusResult,
+) => {
   const payload: Record<string, unknown> = {
     provider: providerKey,
     providerStatus: providerResult.providerStatus,
@@ -218,7 +228,7 @@ const createSyncWebhookResponse = (input: {
   externalUrl?: string | null;
   message?: string | null;
   data?: Record<string, unknown>;
-}) =>
+}): TransactionSyncWebhookResponse =>
   buildSyncWebhookResponsePayload({
     result: mapSaleorStatusToSyncResult(input.saleorStatus, input.actionType),
     amount: input.amount,
@@ -227,7 +237,7 @@ const createSyncWebhookResponse = (input: {
     message: input.message ?? undefined,
     data: input.data ?? undefined,
     actions: [],
-  });
+  }) as TransactionSyncWebhookResponse;
 
 const resolveSettingsForTenant = async (saleorApiUrl: string) =>
   getOrCreateDefaultSettings(saleorApiUrl, {
@@ -247,7 +257,7 @@ export const initializePaymentSession = async (input: {
   const settings = await resolveSettingsForTenant(input.authData.saleorApiUrl);
   const countryCode = resolveSourceObjectCountryCode(
     input.payload.sourceObject,
-    settings.countryRestrictions.addressSource
+    settings.countryRestrictions.addressSource,
   );
 
   if (!countryCode) {
@@ -259,7 +269,7 @@ export const initializePaymentSession = async (input: {
         saleorApiUrl: input.authData.saleorApiUrl,
         sourceObjectId: input.payload.sourceObject.id,
         sourceObjectType: input.payload.sourceObject.__typename,
-      }
+      },
     );
   }
 
@@ -278,7 +288,7 @@ export const initializePaymentSession = async (input: {
         field: "shippingAddress.country",
         restrictionMode: settings.countryRestrictions.mode,
         saleorApiUrl: input.authData.saleorApiUrl,
-      }
+      },
     );
   }
 
@@ -296,13 +306,13 @@ export const initializePaymentSession = async (input: {
       saleorApiUrl: input.authData.saleorApiUrl,
       sourceObject: input.payload.sourceObject,
       merchantReference: input.payload.merchantReference,
-    })
+    }),
   );
   const sourceIdentifiers = getSourceObjectIdentifiers(input.payload.sourceObject);
   const actionType = getSaleorActionType(input.payload.action.actionType);
   const existingSession = await getPaymentSessionByTransactionId(
     input.authData.saleorApiUrl,
-    input.payload.transaction.id
+    input.payload.transaction.id,
   );
   const usdQuote = existingSession
     ? null
@@ -408,13 +418,13 @@ export const processPaymentSession = async (input: {
 }) => {
   const existingSession = await getPaymentSessionByTransactionId(
     input.authData.saleorApiUrl,
-    input.payload.transaction.id
+    input.payload.transaction.id,
   );
 
   if (!existingSession) {
     throw new ValidationError(
       `Transaction ${input.payload.transaction.id} does not have an initialized payment session.`,
-      "This payment session has not been initialized yet."
+      "This payment session has not been initialized yet.",
     );
   }
 
@@ -426,8 +436,10 @@ export const processPaymentSession = async (input: {
     id: existingSession.id,
     saleorApiUrl: existingSession.saleorApiUrl,
     saleorTransactionId: existingSession.saleorTransactionId,
-    saleorTransactionToken: input.payload.transaction.token ?? existingSession.saleorTransactionToken,
-    saleorPspReference: input.payload.transaction.pspReference ?? existingSession.saleorPspReference,
+    saleorTransactionToken:
+      input.payload.transaction.token ?? existingSession.saleorTransactionToken,
+    saleorPspReference:
+      input.payload.transaction.pspReference ?? existingSession.saleorPspReference,
     saleorMerchantReference: existingSession.saleorMerchantReference,
     saleorSourceObjectType: existingSession.saleorSourceObjectType,
     saleorSourceObjectId: existingSession.saleorSourceObjectId,
@@ -454,7 +466,8 @@ export const processPaymentSession = async (input: {
     safeErrorSummary: null,
     statusReason: providerResult.message ?? existingSession.statusReason,
     finalizationState: providerResult.finalizationState,
-    processedAt: providerResult.finalizationState === "finalized" ? new Date() : existingSession.processedAt,
+    processedAt:
+      providerResult.finalizationState === "finalized" ? new Date() : existingSession.processedAt,
   });
 
   await appendPaymentSessionEvent({
@@ -524,7 +537,8 @@ export const manuallyReconcilePaymentSession = async (session: PaymentSessionRec
     safeErrorSummary: null,
     statusReason: providerResult.message ?? session.statusReason,
     finalizationState: providerResult.finalizationState,
-    processedAt: providerResult.finalizationState === "finalized" ? new Date() : session.processedAt,
+    processedAt:
+      providerResult.finalizationState === "finalized" ? new Date() : session.processedAt,
   });
 
   await appendPaymentSessionEvent({
@@ -544,7 +558,8 @@ export const manuallyReconcilePaymentSession = async (session: PaymentSessionRec
 };
 
 const extractWebhookLookupData = (providerKey: PaymentProviderKey, rawResponse: unknown) => {
-  const record = rawResponse && typeof rawResponse === "object" ? (rawResponse as Record<string, unknown>) : {};
+  const record =
+    rawResponse && typeof rawResponse === "object" ? (rawResponse as Record<string, unknown>) : {};
 
   if (providerKey === "nowpayments") {
     return {
@@ -555,11 +570,17 @@ const extractWebhookLookupData = (providerKey: PaymentProviderKey, rawResponse: 
             ? record.purchase_id
             : null,
       providerPaymentId:
-        record.payment_id !== undefined && record.payment_id !== null ? String(record.payment_id) : null,
+        record.payment_id !== undefined && record.payment_id !== null
+          ? String(record.payment_id)
+          : null,
       providerInvoiceId:
-        record.invoice_id !== undefined && record.invoice_id !== null ? String(record.invoice_id) : null,
+        record.invoice_id !== undefined && record.invoice_id !== null
+          ? String(record.invoice_id)
+          : null,
       providerReferenceId:
-        record.payment_id !== undefined && record.payment_id !== null ? String(record.payment_id) : null,
+        record.payment_id !== undefined && record.payment_id !== null
+          ? String(record.payment_id)
+          : null,
     };
   }
 
@@ -574,7 +595,9 @@ const extractWebhookLookupData = (providerKey: PaymentProviderKey, rawResponse: 
   }
 
   const data =
-    record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : record;
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : record;
 
   return {
     saleorTransactionId:
@@ -615,10 +638,13 @@ export const reconcileProviderWebhook = async (input: {
   });
 
   if (!session) {
-    throw new ReconciliationError("Incoming provider webhook could not be matched to a payment session.", {
-      provider: input.providerKey,
-      lookup,
-    });
+    throw new ReconciliationError(
+      "Incoming provider webhook could not be matched to a payment session.",
+      {
+        provider: input.providerKey,
+        lookup,
+      },
+    );
   }
 
   const updatedSession = await upsertPaymentSession({
@@ -635,10 +661,14 @@ export const reconcileProviderWebhook = async (input: {
     customerEmail: session.customerEmail,
     channelSlug: session.channelSlug,
     provider: session.provider,
-    providerPaymentId: webhookResult.providerPaymentId ?? lookup.providerPaymentId ?? session.providerPaymentId,
-    providerInvoiceId: webhookResult.providerInvoiceId ?? lookup.providerInvoiceId ?? session.providerInvoiceId,
+    providerPaymentId:
+      webhookResult.providerPaymentId ?? lookup.providerPaymentId ?? session.providerPaymentId,
+    providerInvoiceId:
+      webhookResult.providerInvoiceId ?? lookup.providerInvoiceId ?? session.providerInvoiceId,
     providerReferenceId:
-      webhookResult.providerReferenceId ?? lookup.providerReferenceId ?? session.providerReferenceId,
+      webhookResult.providerReferenceId ??
+      lookup.providerReferenceId ??
+      session.providerReferenceId,
     providerStatus: webhookResult.providerStatus,
     saleorStatus: webhookResult.saleorStatus,
     amount: Number(session.amount),
@@ -701,7 +731,11 @@ export const reconcileProviderWebhook = async (input: {
   return updatedSession;
 };
 
-export const createFailureSyncResponse = (error: unknown, actionType: "CHARGE" | "AUTHORIZATION", amount: number) =>
+export const createFailureSyncResponse = (
+  error: unknown,
+  actionType: "CHARGE" | "AUTHORIZATION",
+  amount: number,
+) =>
   createSyncWebhookResponse({
     saleorStatus: "FAILED",
     amount,

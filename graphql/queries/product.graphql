@@ -1,6 +1,0 @@
-query ProductTimestamps($id: ID) {
-    product(id: $id) {
-        created
-        updatedAt
-    }
-}

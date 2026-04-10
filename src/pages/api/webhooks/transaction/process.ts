@@ -1,18 +1,22 @@
 import { SaleorSyncWebhook } from "@saleor/app-sdk/handlers/next";
 
+import {
+  TransactionProcessSessionPayloadFragment,
+  TransactionProcessSessionSubscriptionDocument,
+} from "@/generated/graphql";
 import { logger } from "@/modules/core/logger";
 import { createFailureSyncResponse, processPaymentSession } from "@/modules/payments/service";
-import { getSaleorActionType, SaleorTransactionSessionPayload } from "@/modules/saleor/types";
-import { transactionProcessSessionSubscription } from "@/modules/saleor/webhook-payloads";
+import { getSaleorActionType } from "@/modules/saleor/types";
 import { saleorApp } from "@/saleor-app";
 
-export const transactionProcessSessionWebhook = new SaleorSyncWebhook<SaleorTransactionSessionPayload>({
-  name: "Pepclub Payments Transaction Process Session",
-  webhookPath: "api/webhooks/transaction/process",
-  event: "TRANSACTION_PROCESS_SESSION",
-  apl: saleorApp.apl,
-  query: transactionProcessSessionSubscription,
-});
+export const transactionProcessSessionWebhook =
+  new SaleorSyncWebhook<TransactionProcessSessionPayloadFragment>({
+    name: "Pepclub Payments Transaction Process Session",
+    webhookPath: "api/webhooks/transaction/process",
+    event: "TRANSACTION_PROCESS_SESSION",
+    apl: saleorApp.apl,
+    query: TransactionProcessSessionSubscriptionDocument,
+  });
 
 export default transactionProcessSessionWebhook.createHandler(async (req, res, ctx) => {
   try {
@@ -28,13 +32,15 @@ export default transactionProcessSessionWebhook.createHandler(async (req, res, c
       transactionId: ctx.payload.transaction.id,
     });
 
-    return res.status(200).json(
-      createFailureSyncResponse(
-        error,
-        getSaleorActionType(ctx.payload.action.actionType),
-        ctx.payload.action.amount
-      )
-    );
+    return res
+      .status(200)
+      .json(
+        createFailureSyncResponse(
+          error,
+          getSaleorActionType(ctx.payload.action.actionType),
+          ctx.payload.action.amount,
+        ),
+      );
   }
 });
 

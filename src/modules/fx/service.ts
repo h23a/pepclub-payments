@@ -1,5 +1,4 @@
 import { getEnv } from "@/modules/config/env";
-
 import { UsdQuoteMetadata } from "@/modules/payments/types";
 
 type FrankfurterRatesResponse = {

@@ -79,8 +79,20 @@ describe("dashboard settings validation", () => {
     vi.clearAllMocks();
   });
 
-  it("rejects disabling all providers", async () => {
+  it("allows saving settings with all providers disabled", async () => {
+    const repository = await import("@/modules/db/repository");
     const { saveDashboardSettings } = await importDashboardService();
+
+    vi.mocked(repository.updateSettings).mockResolvedValue({
+      saleorApiUrl: "https://example.saleor.cloud/graphql/",
+      defaultProvider: "nowpayments",
+      nowpaymentsEnabled: false,
+      moonpayEnabled: false,
+      rampnetworkEnabled: false,
+      countryRestrictions: defaultCountryRestrictions,
+      createdAt: new Date("2026-04-08T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-08T00:00:00.000Z"),
+    } as never);
 
     await expect(
       saveDashboardSettings(
@@ -95,9 +107,13 @@ describe("dashboard settings validation", () => {
           moonpayEnabled: false,
           rampnetworkEnabled: false,
           countryRestrictions: defaultCountryRestrictions,
-        }
-      )
-    ).rejects.toThrow(/payment provider must remain enabled/i);
+        },
+      ),
+    ).resolves.toMatchObject({
+      nowpaymentsEnabled: false,
+      moonpayEnabled: false,
+      rampnetworkEnabled: false,
+    });
   });
 
   it("rejects disabled fallback providers", async () => {
@@ -116,8 +132,8 @@ describe("dashboard settings validation", () => {
           moonpayEnabled: false,
           rampnetworkEnabled: true,
           countryRestrictions: defaultCountryRestrictions,
-        }
-      )
+        },
+      ),
     ).rejects.toThrow(/fallback provider/i);
   });
 
@@ -140,8 +156,8 @@ describe("dashboard settings validation", () => {
             ...defaultCountryRestrictions,
             countries: [],
           },
-        }
-      )
+        },
+      ),
     ).rejects.toThrow(/at least one iso country code/i);
   });
 });
@@ -223,7 +239,7 @@ describe("dashboard overview recap", () => {
         token: "token",
         appId: "app_1",
       },
-      { range: "7d" }
+      { range: "7d" },
     );
 
     expect(repository.getPaymentRecapStats).toHaveBeenCalledWith(
@@ -231,7 +247,7 @@ describe("dashboard overview recap", () => {
       expect.objectContaining({
         from: expect.any(Date),
         to: expect.any(Date),
-      })
+      }),
     );
     expect(overview.paymentRecap.range).toBe("7d");
     expect(overview.paymentRecap.transactionCount).toBe(8);
@@ -300,7 +316,7 @@ describe("dashboard overview recap", () => {
         range: "custom",
         from: "2026-04-02T00:00:00.000Z",
         to: "2026-04-05T00:00:00.000Z",
-      }
+      },
     );
 
     expect(repository.getPaymentRecapStats).toHaveBeenCalledWith(
@@ -308,7 +324,7 @@ describe("dashboard overview recap", () => {
       {
         from: new Date("2026-04-02T00:00:00.000Z"),
         to: new Date("2026-04-05T23:59:59.999Z"),
-      }
+      },
     );
     expect(overview.paymentRecap.range).toBe("custom");
   });
@@ -357,7 +373,7 @@ describe("dashboard overview recap", () => {
         token: "token",
         appId: "app_1",
       },
-      { range: "invalid-range" }
+      { range: "invalid-range" },
     );
 
     expect(overview.paymentRecap.range).toBe("7d");
@@ -395,16 +411,16 @@ describe("lookupTransactions pagination", () => {
         token: "token",
         appId: "app_1",
       },
-      { page: 2 }
+      { page: 2 },
     );
 
     expect(repository.getRecentPaymentSessions).toHaveBeenCalledWith(
       "https://example.saleor.cloud/graphql/",
       20,
-      20
+      20,
     );
     expect(repository.countPaymentSessions).toHaveBeenCalledWith(
-      "https://example.saleor.cloud/graphql/"
+      "https://example.saleor.cloud/graphql/",
     );
     expect(response.page).toBe(2);
     expect(response.pageSize).toBe(20);
@@ -434,7 +450,7 @@ describe("lookupTransactions pagination", () => {
         token: "token",
         appId: "app_1",
       },
-      { search: "txn", page: 1 }
+      { search: "txn", page: 1 },
     );
 
     expect(repository.searchPaymentSessions).toHaveBeenCalledWith(
@@ -443,11 +459,11 @@ describe("lookupTransactions pagination", () => {
       {
         limit: 20,
         offset: 0,
-      }
+      },
     );
     expect(repository.countSearchPaymentSessions).toHaveBeenCalledWith(
       "https://example.saleor.cloud/graphql/",
-      "txn"
+      "txn",
     );
     expect(response.page).toBe(1);
     expect(response.hasPreviousPage).toBe(false);

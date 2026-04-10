@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import { defineConfig } from "drizzle-kit";
 
 const loadEnvFile = (process as NodeJS.Process & { loadEnvFile?: (path?: string) => void }).loadEnvFile;

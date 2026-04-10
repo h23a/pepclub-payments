@@ -1,8 +1,20 @@
+import { TypedDocumentNode } from "@graphql-typed-document-node/core";
 import { AuthData } from "@saleor/app-sdk/APL";
+import { print } from "graphql";
 
+import {
+  TransactionEventReportDocument,
+  TransactionEventReportMutation,
+  TransactionEventReportMutationVariables,
+  TransactionEventTypeEnum,
+} from "@/generated/graphql";
 import { SaleorCallbackError } from "@/modules/core/errors";
 import { logger } from "@/modules/core/logger";
-import { PaymentSessionRecord, SaleorActionType, SaleorPaymentStatus } from "@/modules/payments/types";
+import {
+  PaymentSessionRecord,
+  SaleorActionType,
+  SaleorPaymentStatus,
+} from "@/modules/payments/types";
 
 type GraphQLErrorShape = {
   message: string;
@@ -15,8 +27,8 @@ type GraphQLResponse<T> = {
 
 const saleorFetch = async <TData, TVariables extends Record<string, unknown>>(
   authData: AuthData,
-  query: string,
-  variables: TVariables
+  document: TypedDocumentNode<TData, TVariables>,
+  variables: TVariables,
 ) => {
   const response = await fetch(authData.saleorApiUrl, {
     method: "POST",
@@ -25,7 +37,7 @@ const saleorFetch = async <TData, TVariables extends Record<string, unknown>>(
       authorization: `Bearer ${authData.token}`,
     },
     body: JSON.stringify({
-      query,
+      query: print(document),
       variables,
     }),
   });
@@ -46,62 +58,36 @@ const saleorFetch = async <TData, TVariables extends Record<string, unknown>>(
   return payload.data;
 };
 
-const statusToEventType = (status: SaleorPaymentStatus, actionType: SaleorActionType) => {
+const statusToEventType = (
+  status: SaleorPaymentStatus,
+  actionType: SaleorActionType,
+): TransactionEventTypeEnum => {
   if (status === "ACTION_REQUIRED") {
     return actionType === "AUTHORIZATION"
-      ? "AUTHORIZATION_ACTION_REQUIRED"
-      : "CHARGE_ACTION_REQUIRED";
+      ? TransactionEventTypeEnum.AuthorizationActionRequired
+      : TransactionEventTypeEnum.ChargeActionRequired;
   }
 
   if (status === "PENDING") {
-    return actionType === "AUTHORIZATION" ? "AUTHORIZATION_REQUEST" : "CHARGE_REQUEST";
+    return actionType === "AUTHORIZATION"
+      ? TransactionEventTypeEnum.AuthorizationRequest
+      : TransactionEventTypeEnum.ChargeRequest;
   }
 
   if (status === "SUCCESS") {
-    return actionType === "AUTHORIZATION" ? "AUTHORIZATION_SUCCESS" : "CHARGE_SUCCESS";
+    return actionType === "AUTHORIZATION"
+      ? TransactionEventTypeEnum.AuthorizationSuccess
+      : TransactionEventTypeEnum.ChargeSuccess;
   }
 
   if (status === "AUTHORIZED") {
-    return "AUTHORIZATION_SUCCESS";
+    return TransactionEventTypeEnum.AuthorizationSuccess;
   }
 
-  return actionType === "AUTHORIZATION" ? "AUTHORIZATION_FAILURE" : "CHARGE_FAILURE";
+  return actionType === "AUTHORIZATION"
+    ? TransactionEventTypeEnum.AuthorizationFailure
+    : TransactionEventTypeEnum.ChargeFailure;
 };
-
-const transactionEventReportMutation = /* GraphQL */ `
-  mutation ReportTransactionEvent(
-    $token: UUID
-    $pspReference: String!
-    $type: TransactionEventTypeEnum!
-    $amount: PositiveDecimal
-    $message: String
-    $externalUrl: String
-    $time: DateTime
-    $availableActions: [TransactionActionEnum!]
-  ) {
-    transactionEventReport(
-      token: $token
-      pspReference: $pspReference
-      type: $type
-      amount: $amount
-      message: $message
-      externalUrl: $externalUrl
-      time: $time
-      availableActions: $availableActions
-    ) {
-      alreadyProcessed
-      errors {
-        code
-        field
-        message
-      }
-      transactionEvent {
-        type
-        pspReference
-      }
-    }
-  }
-`;
 
 export const reportTransactionEvent = async (input: {
   authData: AuthData;
@@ -120,21 +106,10 @@ export const reportTransactionEvent = async (input: {
 
   const eventType = statusToEventType(input.status, input.actionType);
 
-  const data = await saleorFetch<{
-    transactionEventReport: {
-      alreadyProcessed?: boolean | null;
-      errors: { code: string; field?: string | null; message?: string | null }[];
-    };
-  }, {
-    token: string;
-    pspReference: string;
-    type: string;
-    amount: number;
-    message?: string | null;
-    externalUrl?: string | null;
-    time: string;
-    availableActions: string[];
-  }>(input.authData, transactionEventReportMutation, {
+  const data = await saleorFetch<
+    TransactionEventReportMutation,
+    TransactionEventReportMutationVariables
+  >(input.authData, TransactionEventReportDocument, {
     token: input.session.saleorTransactionToken,
     pspReference:
       input.session.providerReferenceId ??
@@ -144,17 +119,28 @@ export const reportTransactionEvent = async (input: {
     type: eventType,
     amount: Number(input.session.amount),
     message: input.message ?? undefined,
-    externalUrl: input.externalUrl ?? input.session.redirectUrl ?? input.session.hostedUrl ?? undefined,
+    externalUrl:
+      input.externalUrl ?? input.session.redirectUrl ?? input.session.hostedUrl ?? undefined,
     time: new Date().toISOString(),
     availableActions: [],
   });
+  const report = data.transactionEventReport;
 
-  if (data.transactionEventReport.errors.length > 0) {
+  if (!report) {
+    throw new SaleorCallbackError(
+      "Saleor transactionEventReport response did not include a payload.",
+      {
+        transactionId: input.session.saleorTransactionId,
+      },
+    );
+  }
+
+  if (report.errors.length > 0) {
     throw new SaleorCallbackError("Saleor transactionEventReport returned errors.", {
-      errors: data.transactionEventReport.errors,
+      errors: report.errors,
       transactionId: input.session.saleorTransactionId,
     });
   }
 
-  return data.transactionEventReport;
+  return report;
 };

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 
 import { PersistenceError } from "@/modules/core/errors";
 import { logger } from "@/modules/core/logger";
+import { normalizePaymentCountryRestrictions } from "@/modules/payments/country-restrictions";
 import {
   ComplianceContract,
   FinalizationState,
@@ -11,7 +12,6 @@ import {
   PaymentSessionSourceObjectType,
   SaleorPaymentStatus,
 } from "@/modules/payments/types";
-import { normalizePaymentCountryRestrictions } from "@/modules/payments/country-restrictions";
 
 import { db } from "./client";
 import { appSettings, paymentSessionEvents, paymentSessions } from "./schema";

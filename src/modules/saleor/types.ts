@@ -1,3 +1,7 @@
+import {
+  TransactionInitializeSessionPayloadFragment,
+  TransactionProcessSessionPayloadFragment,
+} from "@/generated/graphql";
 import { ComplianceContract, PaymentGatewayData, SaleorActionType } from "@/modules/payments/types";
 import { safeJsonParse } from "@/modules/utils/object";
 
@@ -6,49 +10,12 @@ export type MetadataItem = {
   value: string;
 };
 
-type SaleorCountry = {
-  code: string;
-  country: string;
-};
+type InitializeSourceObject = NonNullable<
+  TransactionInitializeSessionPayloadFragment["sourceObject"]
+>;
+type ProcessSourceObject = NonNullable<TransactionProcessSessionPayloadFragment["sourceObject"]>;
 
-type SaleorAddress = {
-  country: SaleorCountry;
-};
-
-type SaleorUser = {
-  id: string;
-};
-
-type CheckoutSourceObject = {
-  __typename: "Checkout";
-  id: string;
-  email?: string | null;
-  user?: SaleorUser | null;
-  channel: {
-    slug: string;
-  };
-  metadata: MetadataItem[];
-  privateMetadata: MetadataItem[];
-  billingAddress?: SaleorAddress | null;
-  shippingAddress?: SaleorAddress | null;
-};
-
-type OrderSourceObject = {
-  __typename: "Order";
-  id: string;
-  checkoutId?: string | null;
-  userEmail?: string | null;
-  user?: SaleorUser | null;
-  channel: {
-    slug: string;
-  };
-  metadata: MetadataItem[];
-  privateMetadata: MetadataItem[];
-  billingAddress?: SaleorAddress | null;
-  shippingAddress?: SaleorAddress | null;
-};
-
-export type SaleorSourceObject = CheckoutSourceObject | OrderSourceObject;
+export type SaleorSourceObject = InitializeSourceObject | ProcessSourceObject;
 
 export type SaleorTransactionSessionPayload = {
   issuedAt?: string | null;
@@ -71,8 +38,8 @@ export type SaleorTransactionSessionPayload = {
   idempotencyKey?: string | null;
 };
 
-const metadataToRecord = (items: MetadataItem[]) =>
-  items.reduce<Record<string, string>>((acc, item) => {
+const metadataToRecord = (items?: ReadonlyArray<MetadataItem> | null) =>
+  (items ?? []).reduce<Record<string, string>>((acc, item) => {
     acc[item.key] = item.value;
     return acc;
   }, {});
@@ -110,7 +77,9 @@ const parseOptionalNumber = (value: unknown) => {
 
 const parseOptionalString = (value: unknown) => (typeof value === "string" ? value : undefined);
 
-export const extractComplianceValue = (sourceObject: SaleorSourceObject): Partial<ComplianceContract> | null => {
+export const extractComplianceValue = (
+  sourceObject: SaleorSourceObject,
+): Partial<ComplianceContract> | null => {
   const merged = {
     ...metadataToRecord(sourceObject.metadata),
     ...metadataToRecord(sourceObject.privateMetadata),
@@ -187,10 +156,17 @@ export const getSourceObjectIdentifiers = (sourceObject: SaleorSourceObject) => 
   };
 };
 
-export const getPaymentGatewayData = (payload: SaleorTransactionSessionPayload): PaymentGatewayData => {
-  const data = payload.data && typeof payload.data === "object" ? (payload.data as Record<string, unknown>) : {};
+export const getPaymentGatewayData = (
+  payload: SaleorTransactionSessionPayload,
+): PaymentGatewayData => {
+  const data =
+    payload.data && typeof payload.data === "object"
+      ? (payload.data as Record<string, unknown>)
+      : {};
   const fxQuote =
-    data.fxQuote && typeof data.fxQuote === "object" ? (data.fxQuote as Record<string, unknown>) : {};
+    data.fxQuote && typeof data.fxQuote === "object"
+      ? (data.fxQuote as Record<string, unknown>)
+      : {};
   const compliance = extractComplianceValue(payload.sourceObject);
 
   return {
@@ -218,8 +194,7 @@ export const getPaymentGatewayData = (payload: SaleorTransactionSessionPayload):
       parseOptionalNumber(data.providerAmount) ?? parseOptionalNumber(fxQuote.providerAmount),
     fxRate: parseOptionalNumber(data.fxRate) ?? parseOptionalNumber(fxQuote.fxRate),
     fxProvider: parseOptionalString(data.fxProvider) ?? parseOptionalString(fxQuote.fxProvider),
-    fxTimestamp:
-      parseOptionalString(data.fxTimestamp) ?? parseOptionalString(fxQuote.fxTimestamp),
+    fxTimestamp: parseOptionalString(data.fxTimestamp) ?? parseOptionalString(fxQuote.fxTimestamp),
     providerData:
       data.providerData && typeof data.providerData === "object"
         ? (data.providerData as Record<string, unknown>)

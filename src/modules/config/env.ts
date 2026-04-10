@@ -13,26 +13,29 @@ const optionalString = () => emptyToUndefined(z.string().min(1));
 const optionalUrl = () => emptyToUndefined(z.string().url());
 
 const booleanString = (fallback: boolean) =>
-  z.preprocess((value) => {
-    if (value === undefined || value === "") {
-      return fallback;
-    }
+  z.preprocess(
+    (value) => {
+      if (value === undefined || value === "") {
+        return fallback;
+      }
 
-    if (typeof value === "boolean") {
+      if (typeof value === "boolean") {
+        return value;
+      }
+
+      if (typeof value === "string") {
+        return value.trim().toLowerCase();
+      }
+
       return value;
-    }
-
-    if (typeof value === "string") {
-      return value.trim().toLowerCase();
-    }
-
-    return value;
-  }, z.union([
-    z.boolean(),
-    z.enum(["1", "0", "true", "false", "yes", "no", "on", "off"]).transform((value) =>
-      ["1", "true", "yes", "on"].includes(value)
-    ),
-  ]));
+    },
+    z.union([
+      z.boolean(),
+      z
+        .enum(["1", "0", "true", "false", "yes", "no", "on", "off"])
+        .transform((value) => ["1", "true", "yes", "on"].includes(value)),
+    ]),
+  );
 
 const providerEnum = z.enum(["nowpayments", "moonpay", "rampnetwork"]);
 const nodeEnvEnum = z.enum(["development", "test", "production"]);
@@ -115,6 +118,10 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
     enableRampNetwork: rawEnv.ENABLE_RAMPNETWORK,
     requireSignatureCompletion: rawEnv.REQUIRE_SIGNATURE_COMPLETION,
   };
+  const hasEnabledProvider =
+    normalizedEnv.enableNowPayments ||
+    normalizedEnv.enableMoonPay ||
+    normalizedEnv.enableRampNetwork;
 
   if (normalizedEnv.FX_STALE_TTL_SECONDS < normalizedEnv.FX_CACHE_TTL_SECONDS) {
     throw new Error("FX_STALE_TTL_SECONDS must be greater than or equal to FX_CACHE_TTL_SECONDS.");
@@ -123,13 +130,13 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
   if (normalizedEnv.COMPLIANCE_VALIDATION_MODE === "api") {
     if (!normalizedEnv.COMPLIANCE_APP_INTERNAL_URL) {
       throw new Error(
-        "COMPLIANCE_APP_INTERNAL_URL is required when COMPLIANCE_VALIDATION_MODE=api."
+        "COMPLIANCE_APP_INTERNAL_URL is required when COMPLIANCE_VALIDATION_MODE=api.",
       );
     }
 
     if (!normalizedEnv.complianceAppSharedSecret) {
       throw new Error(
-        "PEPCLUB_INTERNAL_API_SHARED_SECRET is required when COMPLIANCE_VALIDATION_MODE=api. COMPLIANCE_APP_SHARED_SECRET and INTERNAL_API_SHARED_SECRET are still accepted as aliases."
+        "PEPCLUB_INTERNAL_API_SHARED_SECRET is required when COMPLIANCE_VALIDATION_MODE=api. COMPLIANCE_APP_SHARED_SECRET and INTERNAL_API_SHARED_SECRET are still accepted as aliases.",
       );
     }
   }
@@ -137,7 +144,7 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
   if (normalizedEnv.enableNowPayments) {
     if (!normalizedEnv.NOWPAYMENTS_API_KEY || !normalizedEnv.NOWPAYMENTS_IPN_SECRET) {
       throw new Error(
-        "NOWPAYMENTS_API_KEY and NOWPAYMENTS_IPN_SECRET are required when NOWPayments is enabled."
+        "NOWPAYMENTS_API_KEY and NOWPAYMENTS_IPN_SECRET are required when NOWPayments is enabled.",
       );
     }
   }
@@ -152,7 +159,7 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
       !normalizedEnv.MOONPAY_DEFAULT_WALLET_ADDRESS
     ) {
       throw new Error(
-        "MoonPay requires MOONPAY_PUBLISHABLE_KEY, MOONPAY_SECRET_KEY, MOONPAY_WEBHOOK_KEY, MOONPAY_DEFAULT_WALLET_ADDRESS, MOONPAY_RETURN_URL, and MOONPAY_CANCEL_URL when enabled."
+        "MoonPay requires MOONPAY_PUBLISHABLE_KEY, MOONPAY_SECRET_KEY, MOONPAY_WEBHOOK_KEY, MOONPAY_DEFAULT_WALLET_ADDRESS, MOONPAY_RETURN_URL, and MOONPAY_CANCEL_URL when enabled.",
       );
     }
   }
@@ -170,30 +177,36 @@ const normalizeEnv = (rawEnv: z.infer<typeof rawEnvSchema>) => {
       !normalizedEnv.RAMPNETWORK_FINAL_URL
     ) {
       throw new Error(
-        "Ramp Network requires RAMPNETWORK_API_KEY, RAMPNETWORK_WEBHOOK_SECRET, RAMPNETWORK_HOST_APP_NAME, RAMPNETWORK_HOST_LOGO_URL, RAMPNETWORK_DEFAULT_ASSET, RAMPNETWORK_DEFAULT_FIAT_CURRENCY, RAMPNETWORK_DEFAULT_FIAT_VALUE, RAMPNETWORK_DEFAULT_USER_ADDRESS, and RAMPNETWORK_FINAL_URL when enabled."
+        "Ramp Network requires RAMPNETWORK_API_KEY, RAMPNETWORK_WEBHOOK_SECRET, RAMPNETWORK_HOST_APP_NAME, RAMPNETWORK_HOST_LOGO_URL, RAMPNETWORK_DEFAULT_ASSET, RAMPNETWORK_DEFAULT_FIAT_CURRENCY, RAMPNETWORK_DEFAULT_FIAT_VALUE, RAMPNETWORK_DEFAULT_USER_ADDRESS, and RAMPNETWORK_FINAL_URL when enabled.",
       );
     }
   }
 
   if (
+    hasEnabledProvider &&
     normalizedEnv.DEFAULT_PAYMENT_PROVIDER === "nowpayments" &&
     !normalizedEnv.enableNowPayments
   ) {
     throw new Error(
-      "DEFAULT_PAYMENT_PROVIDER cannot be nowpayments when ENABLE_NOWPAYMENTS=false."
+      "DEFAULT_PAYMENT_PROVIDER cannot be nowpayments when ENABLE_NOWPAYMENTS=false.",
     );
   }
 
-  if (normalizedEnv.DEFAULT_PAYMENT_PROVIDER === "moonpay" && !normalizedEnv.enableMoonPay) {
+  if (
+    hasEnabledProvider &&
+    normalizedEnv.DEFAULT_PAYMENT_PROVIDER === "moonpay" &&
+    !normalizedEnv.enableMoonPay
+  ) {
     throw new Error("DEFAULT_PAYMENT_PROVIDER cannot be moonpay when ENABLE_MOONPAY=false.");
   }
 
   if (
+    hasEnabledProvider &&
     normalizedEnv.DEFAULT_PAYMENT_PROVIDER === "rampnetwork" &&
     !normalizedEnv.enableRampNetwork
   ) {
     throw new Error(
-      "DEFAULT_PAYMENT_PROVIDER cannot be rampnetwork when ENABLE_RAMPNETWORK=false."
+      "DEFAULT_PAYMENT_PROVIDER cannot be rampnetwork when ENABLE_RAMPNETWORK=false.",
     );
   }
 

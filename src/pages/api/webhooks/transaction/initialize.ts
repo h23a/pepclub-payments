@@ -1,21 +1,21 @@
 import { SaleorSyncWebhook } from "@saleor/app-sdk/handlers/next";
 
-import { logger } from "@/modules/core/logger";
 import {
-  createFailureSyncResponse,
-  initializePaymentSession,
-} from "@/modules/payments/service";
-import { getSaleorActionType, SaleorTransactionSessionPayload } from "@/modules/saleor/types";
-import { transactionInitializeSessionSubscription } from "@/modules/saleor/webhook-payloads";
+  TransactionInitializeSessionPayloadFragment,
+  TransactionInitializeSessionSubscriptionDocument,
+} from "@/generated/graphql";
+import { logger } from "@/modules/core/logger";
+import { createFailureSyncResponse, initializePaymentSession } from "@/modules/payments/service";
+import { getSaleorActionType } from "@/modules/saleor/types";
 import { saleorApp } from "@/saleor-app";
 
 export const transactionInitializeSessionWebhook =
-  new SaleorSyncWebhook<SaleorTransactionSessionPayload>({
+  new SaleorSyncWebhook<TransactionInitializeSessionPayloadFragment>({
     name: "Pepclub Payments Transaction Initialize Session",
     webhookPath: "api/webhooks/transaction/initialize",
     event: "TRANSACTION_INITIALIZE_SESSION",
     apl: saleorApp.apl,
-    query: transactionInitializeSessionSubscription,
+    query: TransactionInitializeSessionSubscriptionDocument,
   });
 
 export default transactionInitializeSessionWebhook.createHandler(async (req, res, ctx) => {
@@ -37,13 +37,15 @@ export default transactionInitializeSessionWebhook.createHandler(async (req, res
       transactionId: ctx.payload.transaction.id,
     });
 
-    return res.status(200).json(
-      createFailureSyncResponse(
-        error,
-        getSaleorActionType(ctx.payload.action.actionType),
-        ctx.payload.action.amount
-      )
-    );
+    return res
+      .status(200)
+      .json(
+        createFailureSyncResponse(
+          error,
+          getSaleorActionType(ctx.payload.action.actionType),
+          ctx.payload.action.amount,
+        ),
+      );
   }
 });
 

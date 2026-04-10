@@ -102,6 +102,21 @@ describe("env config", () => {
     expect(() => getEnv()).toThrow(/FX_STALE_TTL_SECONDS/);
   });
 
+  it("allows local boot when all providers are disabled", async () => {
+    const { getEnv } = await importEnvModule({
+      ENABLE_NOWPAYMENTS: "false",
+      ENABLE_MOONPAY: "false",
+      ENABLE_RAMPNETWORK: "false",
+      NOWPAYMENTS_API_KEY: undefined,
+      NOWPAYMENTS_IPN_SECRET: undefined,
+    });
+
+    expect(getEnv().defaultPaymentProvider).toBe("nowpayments");
+    expect(getEnv().enableNowPayments).toBe(false);
+    expect(getEnv().enableMoonPay).toBe(false);
+    expect(getEnv().enableRampNetwork).toBe(false);
+  });
+
   it("accepts the canonical shared secret name for compliance API mode", async () => {
     const { getEnv } = await importEnvModule({
       COMPLIANCE_VALIDATION_MODE: "api",

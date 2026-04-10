@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import { compile } from "json-schema-to-typescript";
 
@@ -8,7 +8,6 @@ const schemaFileNames = [
   // "CheckoutFilterShippingMethods",
   // "ListStoredPaymentMethods",
   // "OrderCalculateTaxes",
-  "OrderFilterShippingMethods",
   // "PaymentGatewayInitializeSession",
   // "PaymentGatewayInitializeTokenizationSession",
   // "ShippingListMethodsForCheckout",
@@ -16,12 +15,13 @@ const schemaFileNames = [
   // "StoredPaymentMethodDeleteRequested",
   // "TransactionCancelationRequested",
   // "TransactionChargeRequested",
-  // "TransactionInitializeSession",
-  // "TransactionProcessSession",
+  "TransactionInitializeSession",
+  "TransactionProcessSession",
   // "TransactionRefundRequested",
 ];
 
 const path = "https://raw.githubusercontent.com/saleor/saleor/main/saleor/json_schemas/";
+const outputDirectory = "./generated/app-webhooks-types";
 
 const convertToKebabCase = (fileName: string): string => {
   return fileName
@@ -36,6 +36,8 @@ const schemaMapping = schemaFileNames.map((fileName) => ({
 }));
 
 async function main() {
+  mkdirSync(outputDirectory, { recursive: true });
+
   await Promise.all(
     schemaMapping.map(async ({ fileName, url }) => {
       const res = await fetch(url);
@@ -46,8 +48,8 @@ async function main() {
         additionalProperties: false,
       });
 
-      writeFileSync(`./generated/app-webhooks-types/${fileName}.ts`, compiledTypes);
-    })
+      writeFileSync(`${outputDirectory}/${fileName}.ts`, compiledTypes);
+    }),
   );
 }
 

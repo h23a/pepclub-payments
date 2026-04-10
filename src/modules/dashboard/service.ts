@@ -64,7 +64,9 @@ const startOfDay = (value: Date) =>
   new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 0, 0, 0, 0));
 
 const endOfDay = (value: Date) =>
-  new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 23, 59, 59, 999));
+  new Date(
+    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate(), 23, 59, 59, 999),
+  );
 
 const startOfMonth = (value: Date) =>
   new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1, 0, 0, 0, 0));
@@ -134,21 +136,23 @@ export const getDashboardOverview = async (
     range?: string | null;
     from?: string | null;
     to?: string | null;
-  }
+  },
 ) => {
   const env = getEnv();
   const recapWindow = resolveDashboardRecapWindow(input);
-  const [settings, stats, paymentRecapStats, database, providers, transactions] = await Promise.all([
-    getSettings(authData.saleorApiUrl),
-    getOverviewStats(authData.saleorApiUrl),
-    getPaymentRecapStats(authData.saleorApiUrl, {
-      from: recapWindow.from,
-      to: recapWindow.to,
-    }),
-    checkDatabaseConnection(),
-    Promise.resolve(getAvailableProviders().map((provider) => provider.getDashboardStatus())),
-    getRecentPaymentSessions(authData.saleorApiUrl, 10),
-  ]);
+  const [settings, stats, paymentRecapStats, database, providers, transactions] = await Promise.all(
+    [
+      getSettings(authData.saleorApiUrl),
+      getOverviewStats(authData.saleorApiUrl),
+      getPaymentRecapStats(authData.saleorApiUrl, {
+        from: recapWindow.from,
+        to: recapWindow.to,
+      }),
+      checkDatabaseConnection(),
+      Promise.resolve(getAvailableProviders().map((provider) => provider.getDashboardStatus())),
+      getRecentPaymentSessions(authData.saleorApiUrl, 10),
+    ],
+  );
   const resolvedTransactionCount = paymentRecapStats.successCount + paymentRecapStats.failedCount;
   const successRate =
     resolvedTransactionCount > 0
@@ -230,44 +234,37 @@ export const getDiagnostics = async (authData: AuthData) => {
   };
 };
 
-export const saveDashboardSettings = async (
-  authData: AuthData,
-  input: PaymentAppSettingsInput
-) => {
+export const saveDashboardSettings = async (authData: AuthData, input: PaymentAppSettingsInput) => {
   const countryRestrictions = normalizePaymentCountryRestrictions(input.countryRestrictions);
 
   if (countryRestrictions.mode !== "allow_all" && countryRestrictions.countries.length === 0) {
     throw new ValidationError(
       "Country-based payment rules require at least one ISO country code.",
-      "Add at least one country code before saving the payment country rule."
+      "Add at least one country code before saving the payment country rule.",
     );
   }
 
-  if (!input.nowpaymentsEnabled && !input.moonpayEnabled && !input.rampnetworkEnabled) {
-    throw new ValidationError(
-      "At least one payment provider must remain enabled.",
-      "Enable at least one provider before saving settings."
-    );
-  }
+  const hasEnabledProvider =
+    input.nowpaymentsEnabled || input.moonpayEnabled || input.rampnetworkEnabled;
 
-  if (input.defaultProvider === "nowpayments" && !input.nowpaymentsEnabled) {
+  if (hasEnabledProvider && input.defaultProvider === "nowpayments" && !input.nowpaymentsEnabled) {
     throw new ValidationError(
       "NOWPayments cannot be the fallback provider when it is disabled.",
-      "Choose an enabled fallback provider."
+      "Choose an enabled fallback provider.",
     );
   }
 
-  if (input.defaultProvider === "moonpay" && !input.moonpayEnabled) {
+  if (hasEnabledProvider && input.defaultProvider === "moonpay" && !input.moonpayEnabled) {
     throw new ValidationError(
       "MoonPay cannot be the fallback provider when it is disabled.",
-      "Choose an enabled fallback provider."
+      "Choose an enabled fallback provider.",
     );
   }
 
-  if (input.defaultProvider === "rampnetwork" && !input.rampnetworkEnabled) {
+  if (hasEnabledProvider && input.defaultProvider === "rampnetwork" && !input.rampnetworkEnabled) {
     throw new ValidationError(
       "Ramp Network cannot be the fallback provider when it is disabled.",
-      "Choose an enabled fallback provider."
+      "Choose an enabled fallback provider.",
     );
   }
 
@@ -283,7 +280,7 @@ export const lookupTransactions = async (
     search?: string;
     page?: number;
     pageSize?: number;
-  }
+  },
 ) => {
   const pageSize = input?.pageSize && input.pageSize > 0 ? input.pageSize : transactionsPageSize;
   const page = input?.page && input.page > 0 ? Math.floor(input.page) : 1;
@@ -307,7 +304,7 @@ export const lookupTransactions = async (
     sessions.map(async (session) => ({
       session,
       timeline: await getSessionTimeline(session.id),
-    }))
+    })),
   );
 
   return {
@@ -321,12 +318,15 @@ export const lookupTransactions = async (
 };
 
 export const reconcileTransactionById = async (authData: AuthData, saleorTransactionId: string) => {
-  const session = await getPaymentSessionByTransactionId(authData.saleorApiUrl, saleorTransactionId);
+  const session = await getPaymentSessionByTransactionId(
+    authData.saleorApiUrl,
+    saleorTransactionId,
+  );
 
   if (!session) {
     throw new ValidationError(
       `Transaction ${saleorTransactionId} was not found.`,
-      "We could not find that transaction."
+      "We could not find that transaction.",
     );
   }
 
