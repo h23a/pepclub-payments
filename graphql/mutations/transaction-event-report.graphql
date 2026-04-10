@@ -1,0 +1,32 @@
+mutation TransactionEventReport(
+  $token: UUID
+  $pspReference: String!
+  $type: TransactionEventTypeEnum!
+  $amount: PositiveDecimal
+  $message: String
+  $externalUrl: String
+  $time: DateTime
+  $availableActions: [TransactionActionEnum!]
+) {
+  transactionEventReport(
+    token: $token
+    pspReference: $pspReference
+    type: $type
+    amount: $amount
+    message: $message
+    externalUrl: $externalUrl
+    time: $time
+    availableActions: $availableActions
+  ) {
+    alreadyProcessed
+    errors {
+      code
+      field
+      message
+    }
+    transactionEvent {
+      type
+      pspReference
+    }
+  }
+}
