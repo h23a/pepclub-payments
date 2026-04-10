@@ -34,6 +34,7 @@ const config: CodegenConfig = {
           Date: "string",
           DateTime: "string",
           Decimal: "number",
+          NonNegativeInt: "number",
           Minute: "number",
           GenericScalar: "JSONValue",
           JSON: "JSONValue",
